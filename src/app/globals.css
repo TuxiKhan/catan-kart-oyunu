@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  --catan-bg: #140f0b;
+  --catan-surface: #221a13;
+  --catan-parchment: #f5ebd6;
+  --catan-gold: #d99b26;
+}
+
+body {
+  background-color: var(--catan-bg);
+  color: #f8fafc;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-x: hidden;
+}
