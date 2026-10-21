@@ -453,8 +453,6 @@ ALTER TABLE public.trades REPLICA IDENTITY FULL;
 ALTER TABLE public.player_hands REPLICA IDENTITY FULL;
 
 DO $$
-DECLARE
-  v_tbl TEXT;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime'
@@ -462,14 +460,34 @@ BEGIN
     CREATE PUBLICATION supabase_realtime;
   END IF;
 
-  FOREACH v_tbl IN ARRAY ARRAY['rooms', 'room_players', 'card_market', 'trades', 'player_hands']
-  LOOP
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_publication_tables
-      WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = v_tbl
-    ) THEN
-      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', v_tbl);
-    END IF;
-  END LOOP;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'rooms'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'room_players'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.room_players;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'card_market'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.card_market;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'trades'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.trades;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'player_hands'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.player_hands;
+  END IF;
 END
 $$;
