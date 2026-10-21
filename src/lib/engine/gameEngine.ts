@@ -26,6 +26,7 @@ import {
 } from './deck';
 import {
   createMetropolisDeck,
+  playerHasMetropolisB,
   triggerMetropolisBProductionHook,
 } from './metropolisRegistry';
 
@@ -1134,14 +1135,20 @@ export function executeBuildStructure(
   if (structureType === 'road') {
     activePlayerCopy.roadsCount += 1;
 
-    // En Uzun Yol kontrolü: İlk Yol dahil ilk 3 yola ulaşan alır; daha fazla yapan olursa el değiştirir
+    // En Uzun Yol kontrolü: İlk Yol dahil ilk 3 yola ulaşan alır; daha fazla yapan olursa (veya metropolis_b_3 ile eşitliğe ulaşırsa) el değiştirir
     if (activePlayerCopy.roadsCount >= 3) {
       const currentHolder = updatedPlayers.find((p) => p.hasLongestRoad);
+      const hasLongestRoadTiebreaker = playerHasMetropolisB(
+        activePlayerCopy,
+        'metropolis_b_3'
+      );
       if (!currentHolder) {
         activePlayerCopy.hasLongestRoad = true;
       } else if (
         currentHolder.playerId !== activePlayerCopy.playerId &&
-        activePlayerCopy.roadsCount > currentHolder.roadsCount
+        (activePlayerCopy.roadsCount > currentHolder.roadsCount ||
+          (hasLongestRoadTiebreaker &&
+            activePlayerCopy.roadsCount >= currentHolder.roadsCount))
       ) {
         currentHolder.hasLongestRoad = false;
         activePlayerCopy.hasLongestRoad = true;
@@ -1172,14 +1179,20 @@ export function executeBuildStructure(
   if (structureType === 'knight') {
     activePlayerCopy.knightsCount += 1;
 
-    // En Güçlü Ordu kontrolü: İlk 2 şövalyeye ulaşan alır; daha fazla yapan olursa el değiştirir
+    // En Güçlü Ordu kontrolü: İlk 2 şövalyeye ulaşan alır; daha fazla yapan olursa (veya metropolis_b_2 ile eşitliğe ulaşırsa) el değiştirir
     if (activePlayerCopy.knightsCount >= 2) {
       const currentHolder = updatedPlayers.find((p) => p.hasLargestArmy);
+      const hasLargestArmyTiebreaker = playerHasMetropolisB(
+        activePlayerCopy,
+        'metropolis_b_2'
+      );
       if (!currentHolder) {
         activePlayerCopy.hasLargestArmy = true;
       } else if (
         currentHolder.playerId !== activePlayerCopy.playerId &&
-        activePlayerCopy.knightsCount > currentHolder.knightsCount
+        (activePlayerCopy.knightsCount > currentHolder.knightsCount ||
+          (hasLargestArmyTiebreaker &&
+            activePlayerCopy.knightsCount >= currentHolder.knightsCount))
       ) {
         currentHolder.hasLargestArmy = false;
         activePlayerCopy.hasLargestArmy = true;
@@ -1262,19 +1275,83 @@ export function executeBuildStructure(
       metropolisCard: metroCard,
     };
 
+    let nextResourceDeck = [...state.resourceDeck];
+    let nextResourceDiscard = [...updatedDiscard];
+    let finalHand = [...updatedHand];
+
+    // B Yüzü Büyükşehir İnşa Anı ve Eşitlik Bozma Yetenekleri
+    if (metroCard.face === 'B' && metroCard.bVariantId) {
+      if (metroCard.bVariantId === 'metropolis_b_1') {
+        // Büyükşehir (B) - Şövalyeler: İnşa edince, inşa ettiğin her Şövalye için desteden 1 Kaynak kartı çek.
+        if (activePlayerCopy.knightsCount > 0) {
+          const drawRes = drawResourceCards(
+            nextResourceDeck,
+            nextResourceDiscard,
+            activePlayerCopy.knightsCount,
+            rng
+          );
+          nextResourceDeck = drawRes.resourceDeck;
+          nextResourceDiscard = drawRes.resourceDiscard;
+          finalHand.push(...drawRes.drawn);
+        }
+      } else if (metroCard.bVariantId === 'metropolis_b_2') {
+        // Büyükşehir (B) - En Güçlü Ordu: En Güçlü Ordu için berabere kalırsan, kart senin olur.
+        if (activePlayerCopy.knightsCount >= 2) {
+          const currentHolder = updatedPlayers.find((p) => p.hasLargestArmy);
+          if (!currentHolder) {
+            activePlayerCopy.hasLargestArmy = true;
+          } else if (
+            currentHolder.playerId !== activePlayerCopy.playerId &&
+            activePlayerCopy.knightsCount >= currentHolder.knightsCount
+          ) {
+            currentHolder.hasLargestArmy = false;
+            activePlayerCopy.hasLargestArmy = true;
+          }
+        }
+      } else if (metroCard.bVariantId === 'metropolis_b_3') {
+        // Büyükşehir (B) - En Uzun Yol: En Uzun Yol için berabere kalırsan, kart senin olur.
+        if (activePlayerCopy.roadsCount >= 3) {
+          const currentHolder = updatedPlayers.find((p) => p.hasLongestRoad);
+          if (!currentHolder) {
+            activePlayerCopy.hasLongestRoad = true;
+          } else if (
+            currentHolder.playerId !== activePlayerCopy.playerId &&
+            activePlayerCopy.roadsCount >= currentHolder.roadsCount
+          ) {
+            currentHolder.hasLongestRoad = false;
+            activePlayerCopy.hasLongestRoad = true;
+          }
+        }
+      } else if (metroCard.bVariantId === 'metropolis_b_4') {
+        // Büyükşehir (B) - Yollar: İnşa edince, inşa ettiğin her Yol için desteden 1 Kaynak kartı çek.
+        if (activePlayerCopy.roadsCount > 0) {
+          const drawRes = drawResourceCards(
+            nextResourceDeck,
+            nextResourceDiscard,
+            activePlayerCopy.roadsCount,
+            rng
+          );
+          nextResourceDeck = drawRes.resourceDeck;
+          nextResourceDiscard = drawRes.resourceDiscard;
+          finalHand.push(...drawRes.drawn);
+        }
+      }
+    }
+
     // Büyükşehir marketten alınmadığı için cardMarket yenilenmez!
     return syncPlayersAndCheckVictory({
       ...state,
       players: updatedPlayers,
       hands: {
         ...state.hands,
-        [playerId]: updatedHand,
+        [playerId]: finalHand,
       },
-      resourceDiscard: updatedDiscard,
+      resourceDeck: nextResourceDeck,
+      resourceDiscard: nextResourceDiscard,
       metropolisDeck,
       logs: [
         ...state.logs,
-        createLog('build', `${activePlayerCopy.nickname} bir Şehrini Büyükşehre dönüştürdü (+1 ZP).`),
+        createLog('build', `${activePlayerCopy.nickname} bir Şehrini Büyükşehre dönüştürdü (${metroCard.titleTr}, +1 ZP).`),
       ],
     });
   }

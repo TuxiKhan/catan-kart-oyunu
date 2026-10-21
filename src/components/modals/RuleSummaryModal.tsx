@@ -42,6 +42,35 @@ export const RuleSummaryModal: React.FC<RuleSummaryModalProps> = ({
 
         {/* İçerik Gövdesi */}
         <div className="p-4 md:p-5 overflow-y-auto space-y-5 text-xs md:text-sm">
+          {/* 0. Orijinal Türkçe Kural Özeti Kartları (Ön ve Arka Yüz) */}
+          <div className="rounded-xl bg-stone-900/90 border border-amber-500/40 p-3">
+            <h3 className="font-bold text-amber-300 flex items-center gap-1.5 mb-2.5">
+              <BookOpen className="w-4 h-4" /> Orijinal Kural Özeti Kartları (Ön Yüz: Yapı Maliyetleri & Arka Yüz: Tur Akışı)
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center justify-items-center">
+              <div className="flex flex-col items-center gap-1.5">
+                <img
+                  src="/cards/player_aid/player_aid_front_build_costs.png"
+                  alt="Kural Özeti Ön Yüz - Yapı Maliyetleri"
+                  className="w-56 md:w-64 rounded-xl border-2 border-amber-400/70 shadow-lg object-contain"
+                />
+                <span className="text-[11px] font-bold text-amber-200">
+                  Ön Yüz: Yapı Maliyetleri
+                </span>
+              </div>
+              <div className="flex flex-col items-center gap-1.5">
+                <img
+                  src="/cards/player_aid/player_aid_back_turn_overview.png"
+                  alt="Kural Özeti Arka Yüz - Tur Akışı"
+                  className="w-56 md:w-64 rounded-xl border-2 border-amber-400/70 shadow-lg object-contain"
+                />
+                <span className="text-[11px] font-bold text-amber-200">
+                  Arka Yüz: Tur Akışı
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* 1. Tur Sırası ve Zafer Koşulu */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="rounded-xl bg-stone-900/90 border border-amber-500/30 p-3">

@@ -156,6 +156,7 @@ export const MarketArea: React.FC<MarketAreaProps> = ({
                     category: 'structure',
                     type: 'metropolis',
                     face: gameView.topMetropolisCard?.face || gameView.settings.metropolisFaceMode,
+                    bVariantId: gameView.topMetropolisCard?.bVariantId,
                     customTitle: gameView.topMetropolisCard?.titleTr || 'Büyükşehir',
                     customSubtitle:
                       gameView.topMetropolisCard?.descriptionTr || '+2 Üretim • Şehre Kapanır',

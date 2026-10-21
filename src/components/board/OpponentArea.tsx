@@ -138,6 +138,7 @@ export const VillageSlotVisual: React.FC<{
               category: 'structure',
               type: 'metropolis',
               face: slot.metropolisCard?.face || 'A',
+              bVariantId: slot.metropolisCard?.bVariantId,
               hasFirstPlayerMarker: slot.hasFirstPlayerMarker,
               customTitle: slot.metropolisCard?.titleTr || 'Büyükşehir',
               customSubtitle: slot.metropolisCard?.descriptionTr || '3 ZP • +2 Üretim',

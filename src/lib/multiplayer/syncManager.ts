@@ -1,4 +1,4 @@
-import { createClient, RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
+import { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import {
   ActiveTradeSession,
   AuthoritativeGameState,
@@ -17,6 +17,20 @@ import {
   TradeCounterOffer,
 } from '@/types/game';
 import { refillCardMarket, setupInitialCardMarket } from '@/lib/engine/deck';
+import {
+  createPlayerSupabaseClient,
+  isSupabaseConfigured,
+} from '@/lib/supabase/client';
+import type { Database } from '@/lib/supabase/database.types';
+import {
+  fetchAuthoritativeRoomFromSupabase,
+  fetchMaskedClientGameViewFromSupabase,
+  persistRoomToSupabase,
+  subscribeToSupabaseRoomRealtime,
+  type SupabaseSyncResult,
+  syncAuthoritativeStateToSupabase,
+  upsertPlayerToSupabase,
+} from '@/lib/supabase/supabaseRoomRepository';
 
 export interface GuestSession {
   playerId: string;
@@ -100,23 +114,27 @@ export function buildInitialMetropolisDeck(faceMode: MetropolisFaceMode): Metrop
   const bVariants = [
     {
       bVariantId: 'metropolis_b_1' as const,
-      titleTr: 'Ticaret Metropolü (B Yüzü)',
-      descriptionTr: 'Üretimde +1 kaynak verir. Oyuncu takasında ekstra avantaj sağlar.',
+      titleTr: 'Büyükşehir (B) - Şövalyeler',
+      descriptionTr:
+        '3 Zafer Puanı. Üretimde +1 Kaynak verir. Oyun sonunda her Şövalye kartınız için +1 ZP kazandırır.',
     },
     {
       bVariantId: 'metropolis_b_2' as const,
-      titleTr: 'Liman Metropolü (B Yüzü)',
-      descriptionTr: 'Üretimde +1 kaynak verir. Liman takasında esneklik sağlar.',
+      titleTr: 'Büyükşehir (B) - En Güçlü Ordu',
+      descriptionTr:
+        '3 Zafer Puanı. Üretimde +1 Kaynak verir. En Güçlü Ordu kartı sizdeyse ek +1 ZP kazandırır.',
     },
     {
       bVariantId: 'metropolis_b_3' as const,
-      titleTr: 'Kale Metropolü (B Yüzü)',
-      descriptionTr: 'Üretimde +1 kaynak verir. Hırsız olayına karşı koruma sağlar.',
+      titleTr: 'Büyükşehir (B) - En Uzun Yol',
+      descriptionTr:
+        '3 Zafer Puanı. Üretimde +1 Kaynak verir. En Uzun Yol kartı sizdeyse ek +1 ZP kazandırır.',
     },
     {
       bVariantId: 'metropolis_b_4' as const,
-      titleTr: 'Bilim Metropolü (B Yüzü)',
-      descriptionTr: 'Üretimde +1 kaynak verir. İnşaatta indirim olanağı sunar.',
+      titleTr: 'Büyükşehir (B) - Yollar',
+      descriptionTr:
+        '3 Zafer Puanı. Üretimde +1 Kaynak verir. Oyun sonunda her 2 Yol kartınız için +1 ZP kazandırır.',
     },
   ];
 
@@ -377,6 +395,9 @@ export function createAuthoritativeRoom(
   };
 
   saveRoomStateToStorage(state);
+  if (isSupabaseConfigured()) {
+    void persistRoomToSupabase(state).catch(() => {});
+  }
   return { ok: true, state };
 }
 
@@ -405,6 +426,13 @@ export function joinAuthoritativeRoom(
       type: 'setup',
     });
     saveRoomStateToStorage(nextState);
+    if (isSupabaseConfigured()) {
+      void upsertPlayerToSupabase(
+        nextState.roomId,
+        existingPlayer,
+        nextState.hands[existingPlayer.playerId] || []
+      ).catch(() => {});
+    }
     return { ok: true, state: nextState };
   }
 
@@ -434,6 +462,9 @@ export function joinAuthoritativeRoom(
   });
 
   saveRoomStateToStorage(nextState);
+  if (isSupabaseConfigured()) {
+    void syncAuthoritativeStateToSupabase(nextState).catch(() => {});
+  }
   return { ok: true, state: nextState };
 }
 
@@ -988,14 +1019,21 @@ export class MultiplayerSyncManager {
   private viewerPlayerId: string;
   private listeners = new Set<StateUpdateListener>();
   private broadcastChannel: BroadcastChannel | null = null;
-  private supabase: SupabaseClient | null = null;
+  private supabase: SupabaseClient<Database> | null = null;
   private realtimeChannel: RealtimeChannel | null = null;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private storageListener: ((e: StorageEvent) => void) | null = null;
 
-  constructor(roomCode: string, viewerPlayerId: string) {
+  constructor(
+    roomCode: string,
+    viewerPlayerId: string,
+    customSupabaseClient?: SupabaseClient<Database>
+  ) {
     this.roomCode = roomCode.trim().toUpperCase();
     this.viewerPlayerId = viewerPlayerId;
+    if (customSupabaseClient) {
+      this.supabase = customSupabaseClient;
+    }
   }
 
   public connect(): void {
@@ -1031,34 +1069,50 @@ export class MultiplayerSyncManager {
       window.addEventListener('storage', this.storageListener);
     }
 
-    // 3. Supabase Realtime bağlantısı (.env.local içinde tanımlıysa)
-    const supabaseUrl =
-      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : undefined;
-    const supabaseAnonKey =
-      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : undefined;
-
-    if (supabaseUrl && supabaseAnonKey) {
+    // 3. Supabase PostgreSQL + Realtime bağlantısı (aktifse veya özel client enjekte edildiyse)
+    if (this.supabase || isSupabaseConfigured()) {
       try {
-        this.supabase = createClient(supabaseUrl, supabaseAnonKey);
-        this.realtimeChannel = this.supabase
-          .channel(`room:${this.roomCode}`, {
-            config: { broadcast: { self: false }, presence: { key: this.viewerPlayerId } },
-          })
-          .on('broadcast', { event: 'STATE_SYNC' }, (payload) => {
-            if (payload.payload?.state) {
-              const incoming = payload.payload.state as AuthoritativeGameState;
-              saveRoomStateToStorage(incoming);
-              this.notifyListeners(incoming);
+        if (!this.supabase) {
+          this.supabase = createPlayerSupabaseClient(this.viewerPlayerId);
+        }
+        const currentRoomId = this.getState()?.roomId || this.roomCode;
+
+        this.realtimeChannel = subscribeToSupabaseRoomRealtime({
+          roomId: currentRoomId,
+          roomCode: this.roomCode,
+          viewerPlayerId: this.viewerPlayerId,
+          client: this.supabase,
+          onBroadcastState: (incoming) => {
+            saveRoomStateToStorage(incoming);
+            this.notifyListeners(incoming);
+          },
+          onPostgresChange: () => {
+            void this.fetchFromDatabase();
+          },
+          onPresenceSync: (onlinePlayerIds) => {
+            const current = this.getState();
+            if (!current) return;
+            let anyChanged = false;
+            const nextState = structuredClone(current);
+            for (const p of nextState.players) {
+              const isOnline = onlinePlayerIds.includes(p.playerId);
+              if (p.isConnected !== isOnline) {
+                p.isConnected = isOnline;
+                p.lastSeenAt = new Date().toISOString();
+                anyChanged = true;
+              }
             }
-          })
-          .subscribe(async (status) => {
-            if (status === 'SUBSCRIBED' && this.realtimeChannel) {
-              await this.realtimeChannel.track({
-                playerId: this.viewerPlayerId,
-                onlineAt: new Date().toISOString(),
-              });
+            if (anyChanged) {
+              saveRoomStateToStorage(nextState);
+              this.notifyListeners(nextState);
             }
-          });
+          },
+        });
+
+        // Başlangıçta yerel depoda oda yoksa Supabase'den çek
+        if (!this.getState()) {
+          void this.fetchFromDatabase();
+        }
       } catch {
         // Fallback to local sync silently
       }
@@ -1132,6 +1186,53 @@ export class MultiplayerSyncManager {
     return toClientGameView(state, this.viewerPlayerId);
   }
 
+  /**
+   * Mevcut veya verilen AuthoritativeGameState durumunu Supabase PostgreSQL
+   * (`rooms`, `room_players`, `player_hands`, `decks`, `card_market`, `trades`) tablolarına yazar.
+   */
+  public async syncToDatabase(
+    stateOverride?: AuthoritativeGameState
+  ): Promise<SupabaseSyncResult> {
+    const target = stateOverride || this.getState();
+    if (!target) {
+      return { ok: false, error: 'Senkronize edilecek oda durumu bulunamadı.' };
+    }
+    return syncAuthoritativeStateToSupabase(target, this.supabase ?? undefined);
+  }
+
+  /**
+   * Supabase PostgreSQL tablolarından tam oda durumunu çeker ve yerel önbelleği günceller.
+   */
+  public async fetchFromDatabase(): Promise<AuthoritativeGameState | null> {
+    const remoteState = await fetchAuthoritativeRoomFromSupabase(
+      this.roomCode,
+      this.supabase ?? undefined
+    );
+    if (remoteState) {
+      saveRoomStateToStorage(remoteState);
+      this.notifyListeners(remoteState);
+    }
+    return remoteState;
+  }
+
+  /**
+   * Supabase `get_masked_client_game_view` RPC fonksiyonunu çağırarak
+   * hile korumalı (RLS uyumlu) istemci görünümünü çeker.
+   */
+  public async fetchMaskedClientViewFromRpc(
+    roomIdOverride?: string
+  ): Promise<ClientGameView | null> {
+    const roomId = roomIdOverride || this.getState()?.roomId;
+    if (!roomId) {
+      return null;
+    }
+    return fetchMaskedClientGameViewFromSupabase(
+      roomId,
+      this.viewerPlayerId,
+      this.supabase ?? undefined
+    );
+  }
+
   public broadcastState(nextState: AuthoritativeGameState): void {
     saveRoomStateToStorage(nextState);
     this.notifyListeners(nextState);
@@ -1155,6 +1256,10 @@ export class MultiplayerSyncManager {
           payload: { state: nextState },
         })
         .catch(() => {});
+    }
+
+    if (this.supabase || isSupabaseConfigured()) {
+      void this.syncToDatabase(nextState).catch(() => {});
     }
   }
 

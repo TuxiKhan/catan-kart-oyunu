@@ -3,6 +3,7 @@ import {
   MetropolisBId,
   MetropolisCard,
   MetropolisFaceMode,
+  PublicPlayerState,
 } from '../../types/game';
 
 export type MetropolisBEffectHandler = (
@@ -11,35 +12,66 @@ export type MetropolisBEffectHandler = (
   card: MetropolisCard
 ) => AuthoritativeGameState;
 
-interface MetropolisBDefinition {
+export interface MetropolisBDefinition {
   bVariantId: MetropolisBId;
   titleTr: string;
   descriptionTr: string;
+  imageUrl: string;
   onProductionEffect?: MetropolisBEffectHandler;
 }
 
 const METROPOLIS_B_REGISTRY: Record<MetropolisBId, MetropolisBDefinition> = {
   metropolis_b_1: {
     bVariantId: 'metropolis_b_1',
-    titleTr: 'Büyükşehir (B-1)',
-    descriptionTr: 'Aktif turunuzda +1 Kaynak üretir. (Özel B Yüzü Yeteneği Yuvaya Hazır)',
+    titleTr: 'Büyükşehir (B) - Şövalyeler',
+    descriptionTr:
+      'Üretimde +1 Kaynak. İnşa edince, inşa ettiğin her Şövalye için desteden 1 Kaynak kartı çek.',
+    imageUrl: '/cards/metropolis/metropolis_B_knights.png',
   },
   metropolis_b_2: {
     bVariantId: 'metropolis_b_2',
-    titleTr: 'Büyükşehir (B-2)',
-    descriptionTr: 'Aktif turunuzda +1 Kaynak üretir. (Özel B Yüzü Yeteneği Yuvaya Hazır)',
+    titleTr: 'Büyükşehir (B) - En Güçlü Ordu',
+    descriptionTr:
+      'Üretimde +1 Kaynak. En Güçlü Ordu için berabere kalırsan, kart senin olur.',
+    imageUrl: '/cards/metropolis/metropolis_B_largest_army.png',
   },
   metropolis_b_3: {
     bVariantId: 'metropolis_b_3',
-    titleTr: 'Büyükşehir (B-3)',
-    descriptionTr: 'Aktif turunuzda +1 Kaynak üretir. (Özel B Yüzü Yeteneği Yuvaya Hazır)',
+    titleTr: 'Büyükşehir (B) - En Uzun Yol',
+    descriptionTr:
+      'Üretimde +1 Kaynak. En Uzun Yol için berabere kalırsan, kart senin olur.',
+    imageUrl: '/cards/metropolis/metropolis_B_longest_route.png',
   },
   metropolis_b_4: {
     bVariantId: 'metropolis_b_4',
-    titleTr: 'Büyükşehir (B-4)',
-    descriptionTr: 'Aktif turunuzda +1 Kaynak üretir. (Özel B Yüzü Yeteneği Yuvaya Hazır)',
+    titleTr: 'Büyükşehir (B) - Yollar',
+    descriptionTr:
+      'Üretimde +1 Kaynak. İnşa edince, inşa ettiğin her Yol için desteden 1 Kaynak kartı çek.',
+    imageUrl: '/cards/metropolis/metropolis_B_roads.png',
   },
 };
+
+export function getMetropolisBDefinition(
+  bVariantId: MetropolisBId
+): MetropolisBDefinition {
+  return METROPOLIS_B_REGISTRY[bVariantId];
+}
+
+/**
+ * Bir oyuncunun önünde belirli bir B yüzü Büyükşehir kartının (örn. metropolis_b_2 veya metropolis_b_3)
+ * inşa edilmiş olup olmadığını kontrol eder.
+ */
+export function playerHasMetropolisB(
+  player: PublicPlayerState,
+  bVariantId: MetropolisBId
+): boolean {
+  return player.villageSlots.some(
+    (slot) =>
+      slot.upgradedTo === 'metropolis' &&
+      slot.metropolisCard?.face === 'B' &&
+      slot.metropolisCard?.bVariantId === bVariantId
+  );
+}
 
 /**
  * B yüzü özel yeteneklerini çalışma zamanında veya gelecekteki genişletmelerde

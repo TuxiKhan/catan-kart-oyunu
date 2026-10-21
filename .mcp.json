@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp",
+      "serverUrl": "https://mcp.supabase.com/mcp",
+      "headers": {
+        "X-Source-Name": "antigravity-plugin",
+        "X-Source-Version": "0.1.17"
+      }
+    },
+    "supabase-local": {
+      "command": "npx.cmd",
+      "args": ["-y", "@supabase/mcp-server-supabase@latest", "--read-only=false"],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
