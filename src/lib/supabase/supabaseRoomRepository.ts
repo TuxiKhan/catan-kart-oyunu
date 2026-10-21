@@ -328,6 +328,22 @@ export async function syncAuthoritativeStateToSupabase(
   const syncedTables: string[] = [];
 
   try {
+    // Tarayıcı ortamında (service_role anahtarı yokken) atomik SECURITY DEFINER RPC kullan
+    const hasServiceKey =
+      typeof process !== 'undefined' && Boolean(process.env?.SUPABASE_SERVICE_ROLE_KEY);
+    if (!client && !hasServiceKey && typeof (db as { rpc?: unknown }).rpc === 'function') {
+      const { error: rpcError } = await db.rpc(
+        'sync_authoritative_room_state' as never,
+        { p_state: state } as never
+      );
+      if (!rpcError) {
+        return {
+          ok: true,
+          syncedTables: ['rooms', 'room_players', 'player_hands', 'card_market', 'decks', 'trades'],
+        };
+      }
+    }
+
     // 1. rooms tablosu
     const roomRow = mapStateToRoomRow(state, nowIso);
     const { error: roomError } = await db
