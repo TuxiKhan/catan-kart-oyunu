@@ -17,9 +17,11 @@ import {
   loadRoomStateFromStorage,
   MultiplayerSyncManager,
   saveGuestSession,
+  saveRoomStateToStorage,
   startAuthoritativeGame,
   toClientGameView,
 } from '@/lib/multiplayer/syncManager';
+import { fetchAuthoritativeRoomFromSupabase } from '@/lib/supabase/supabaseRoomRepository';
 import {
   Check,
   Clock,
@@ -80,6 +82,13 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
         const storedRoom = loadRoomStateFromStorage(existing.roomCode);
         if (storedRoom) {
           setSavedRoomCode(existing.roomCode);
+        } else {
+          void fetchAuthoritativeRoomFromSupabase(existing.roomCode).then((cloudRoom) => {
+            if (cloudRoom) {
+              saveRoomStateToStorage(cloudRoom);
+              setSavedRoomCode(existing.roomCode!);
+            }
+          });
         }
       }
     }
@@ -149,7 +158,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     setErrorMessage(null);
   };
 
-  const handleJoinRoom = (e: React.FormEvent, codeOverride?: string) => {
+  const handleJoinRoom = async (e: React.FormEvent, codeOverride?: string) => {
     e.preventDefault();
     const activeSession = ensureGuestSession();
     if (!activeSession) return;
@@ -160,7 +169,15 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       return;
     }
 
-    const existingRoom = loadRoomStateFromStorage(targetCode);
+    let existingRoom = loadRoomStateFromStorage(targetCode);
+    if (!existingRoom) {
+      const cloudRoom = await fetchAuthoritativeRoomFromSupabase(targetCode);
+      if (cloudRoom) {
+        saveRoomStateToStorage(cloudRoom);
+        existingRoom = cloudRoom;
+      }
+    }
+
     if (!existingRoom) {
       setErrorMessage(
         `${targetCode} kodlu aktif bir oda bulunamadı. Lütfen oda kodunu kontrol edin.`

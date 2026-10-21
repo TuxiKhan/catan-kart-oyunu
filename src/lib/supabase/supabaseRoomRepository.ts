@@ -475,6 +475,18 @@ export async function fetchAuthoritativeRoomFromSupabase(
       normalized
     );
 
+    const hasServiceKey =
+      typeof process !== 'undefined' && Boolean(process.env?.SUPABASE_SERVICE_ROLE_KEY);
+    if (!client && !hasServiceKey && !isUuid && typeof (db as { rpc?: unknown }).rpc === 'function') {
+      const { data: rpcRoom, error: rpcErr } = await db.rpc(
+        'load_authoritative_room_by_code' as never,
+        { p_room_code: normalized.toUpperCase() } as never
+      );
+      if (!rpcErr && rpcRoom) {
+        return rpcRoom as unknown as AuthoritativeGameState;
+      }
+    }
+
     const roomQuery = db.from('rooms').select('*');
     const { data: roomData, error: roomErr } = isUuid
       ? await roomQuery.eq('id', normalized).maybeSingle()

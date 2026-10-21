@@ -432,6 +432,111 @@ END;
 $$;
 
 -- ============================================================================
+-- 4C. ODA KODU İLE TAM ODA DURUMU YÜKLEME RPC FONKSİYONU (SECURITY DEFINER)
+-- Farklı cihaz/tarayıcıdan 6 haneli oda koduyla katılan oyuncuların odayı
+-- bulut veritabanından çekebilmesini sağlar.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.load_authoritative_room_by_code(
+  p_room_code TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_room RECORD;
+  v_market RECORD;
+  v_deck RECORD;
+  v_players JSONB;
+  v_hands JSONB;
+  v_active_trade JSONB;
+BEGIN
+  SELECT * INTO v_room
+  FROM public.rooms
+  WHERE room_code = UPPER(TRIM(p_room_code))
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT * INTO v_market FROM public.card_market WHERE room_id = v_room.id;
+  SELECT * INTO v_deck FROM public.decks WHERE room_id = v_room.id;
+
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'playerId', rp.player_id,
+        'nickname', rp.nickname,
+        'seatIndex', rp.seat_index,
+        'isConnected', rp.is_connected,
+        'lastSeenAt', rp.last_seen_at,
+        'handCount', rp.hand_count,
+        'roadsCount', rp.roads_count,
+        'knightsCount', rp.knights_count,
+        'villageSlots', rp.village_slots,
+        'hasLongestRoad', rp.has_longest_road,
+        'hasLargestArmy', rp.has_largest_army,
+        'victoryPoints', rp.victory_points
+      ) ORDER BY rp.seat_index ASC
+    ),
+    '[]'::jsonb
+  ) INTO v_players
+  FROM public.room_players rp
+  WHERE rp.room_id = v_room.id;
+
+  SELECT COALESCE(
+    jsonb_object_agg(ph.player_id, ph.resources),
+    '{}'::jsonb
+  ) INTO v_hands
+  FROM public.player_hands ph
+  WHERE ph.room_id = v_room.id;
+
+  SELECT jsonb_build_object(
+    'id', t.id,
+    'roomId', t.room_id,
+    'initiatorPlayerId', t.initiator_player_id,
+    'wantedResources', t.wanted_resources,
+    'offeredResources', t.offered_resources,
+    'counterOffers', t.counter_offers,
+    'status', t.status
+  ) INTO v_active_trade
+  FROM public.trades t
+  WHERE t.room_id = v_room.id AND t.status IN ('open', 'offered')
+  ORDER BY t.created_at DESC
+  LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'roomId', v_room.id,
+    'roomCode', v_room.room_code,
+    'status', v_room.status,
+    'settings', v_room.settings,
+    'turnNumber', v_room.turn_number,
+    'activePlayerIndex', v_room.active_player_index,
+    'turnPhase', v_room.turn_phase,
+    'turnStartedAt', v_room.turn_started_at,
+    'hasTradedThisTurn', v_room.has_traded_this_turn,
+    'hasUsedHarborThisTurn', v_room.has_used_harbor_this_turn,
+    'players', v_players,
+    'hands', v_hands,
+    'resourceDeck', COALESCE(v_deck.resource_deck, '[]'::jsonb),
+    'resourceDiscard', COALESCE(v_deck.resource_discard, '[]'::jsonb),
+    'buildingDeck', COALESCE(v_deck.building_deck, '[]'::jsonb),
+    'cardMarket', COALESCE(v_market.open_building_cards, '[]'::jsonb),
+    'metropolisDeck', COALESCE(v_market.metropolis_deck, '[]'::jsonb),
+    'eventDeck', COALESCE(v_deck.event_deck, '[]'::jsonb),
+    'eventDiscard', COALESCE(v_deck.event_discard, '[]'::jsonb),
+    'pendingEvent', v_market.pending_event,
+    'activeTrade', v_active_trade,
+    'winnerPlayerId', v_room.winner_player_id,
+    'logs', v_room.logs
+  );
+END;
+$$;
+
+-- ============================================================================
 -- 5. ROL YETKİLERİ (GRANTS) VE SUPABASE REALTIME PUBLICATION TANIMLARI
 -- NOT: 'decks' tablosu hile koruması nedeniyle KESİNLİKLE Realtime'a EKLENMEZ
 -- ve anon/authenticated rollerinden SELECT yetkisi tamamen kaldırılır!
@@ -445,6 +550,7 @@ REVOKE ALL ON public.decks FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.request_player_id() TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_masked_client_game_view(UUID, TEXT) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.sync_authoritative_room_state(JSONB) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.load_authoritative_room_by_code(TEXT) TO anon, authenticated, service_role;
 
 ALTER TABLE public.rooms REPLICA IDENTITY FULL;
 ALTER TABLE public.room_players REPLICA IDENTITY FULL;
