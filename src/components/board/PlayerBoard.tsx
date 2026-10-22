@@ -8,7 +8,8 @@ import {
   RESOURCE_LABELS_TR,
 } from '../../types/game';
 import { CardVisual } from '../cards/CardVisual';
-import { CascadingStructureStack, VillageSlotVisual } from './OpponentArea';
+import { CascadingStructureStack, InspectCardInfo, VillageSlotVisual } from './OpponentArea';
+import { FannedHand } from './FannedHand';
 import {
   Anchor,
   ArrowRightLeft,
@@ -28,6 +29,8 @@ export interface PlayerBoardProps {
   onOpenHarborModal: () => void;
   onOpenTradeModal: () => void;
   onEndTurn: () => void;
+  onInspectCard?: (info: InspectCardInfo) => void;
+  isFourPlayer?: boolean;
 }
 
 const RESOURCE_ORDER: ResourceType[] = ['brick', 'wood', 'wool', 'wheat', 'ore'];
@@ -61,6 +64,8 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
   onOpenHarborModal,
   onOpenTradeModal,
   onEndTurn,
+  onInspectCard,
+  isFourPlayer = false,
 }) => {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
 
@@ -266,67 +271,70 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
         </button>
       </div>
 
-      {/* Alt İki Sütun: Sol = Oyuncunun Elindeki Açık Kaynaklar, Sağ = Oyuncunun Yapıları */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* ELDEKİ AÇIK KAYNAK KARTLARI (Türe Göre Gruplanmış) */}
-        <div className="lg:col-span-5 rounded-xl bg-stone-900/70 border border-amber-500/20 p-3">
-          <div className="flex items-center justify-between mb-2">
+      {/* Alt İki Sütun: Sol = Oyuncunun Elindeki Açık Kaynaklar (Yelpaze Düzeni), Sağ = Oyuncunun Yapıları */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+        {/* ELDEKİ AÇIK KAYNAK KARTLARI (FannedHand) */}
+        <div className="lg:col-span-5 flex flex-col items-center justify-center p-2">
+          <div className="flex items-center justify-between w-full mb-1 px-2">
             <h3 className="text-xs md:text-sm font-bold text-amber-200">
-              Elimdeki Kaynak Kartları ({gameView.myHand.length} Adet)
+              Elimdeki Kaynak Kartları ({gameView.myHand.length})
             </h3>
             {gameView.myHand.length > 7 + myPlayer.knightsCount && (
-              <span className="text-[11px] px-2 py-0.5 rounded bg-rose-500/20 border border-rose-400 text-rose-200 font-semibold">
-                Dikkat: &gt;{7 + myPlayer.knightsCount} Kart (Hırsız Riski!)
+              <span className="text-[10px] px-2 py-0.5 rounded bg-rose-500/20 border border-rose-400 text-rose-200 font-semibold">
+                &gt;{7 + myPlayer.knightsCount} Kart (Hırsız Riski!)
               </span>
             )}
           </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
-            {RESOURCE_ORDER.map((resType) => {
-              const count = handCounts[resType];
-              return (
-                <div
-                  key={resType}
-                  className={`flex flex-col items-center shrink-0 transition-opacity ${
-                    count === 0 ? 'opacity-35' : 'opacity-100'
-                  }`}
-                >
-                  <CardVisual
-                    card={{ category: 'resource', type: resType }}
-                    size="xs"
-                    countBadge={count}
-                  />
-                  <span className="mt-1 text-[11px] font-bold text-stone-200">
-                    {RESOURCE_LABELS_TR[resType]} ({count})
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+          <FannedHand
+            hand={gameView.myHand}
+            isFourPlayer={isFourPlayer}
+            align={isFourPlayer ? 'bottom-right' : 'bottom-center'}
+            onInspectCard={(card) => {
+              const resType = typeof card === 'string' ? card : card.type;
+              onInspectCard?.({
+                imageUrl: `/cards/resource/resource_${resType}.png`,
+                title: RESOURCE_LABELS_TR[resType],
+                subtitle: 'Hammadde Kaynak Kartı',
+                description: `Elinizdeki ${RESOURCE_LABELS_TR[resType]} kaynağı. İnşaat ve takaslarda kullanılır.`,
+              });
+            }}
+          />
         </div>
 
-        {/* OYUNCUNUN İNŞA ETTİĞİ YAPILAR (Cascading Yollar, Cascading Şövalyeler, Köy/Şehir/Büyükşehir Slotları) */}
+        {/* OYUNCUNUN İNŞA ETTİĞİ YAPILAR */}
         <div className="lg:col-span-7 rounded-xl bg-stone-900/70 border border-amber-500/20 p-3">
           <h3 className="text-xs md:text-sm font-bold text-amber-200 mb-2">
-            Yapılarım (Üst Üste Yol & Şövalye İstifleri + Köy/Şehir/Büyükşehir Alanı)
+            Yapılarım (Yol, Şövalye ve Köy / Şehir / Büyükşehir Slotları)
           </h3>
 
-          <div className="flex items-start gap-4 overflow-x-auto pb-2 pt-1">
+          <div className="flex items-start gap-3 sm:gap-4 overflow-x-auto pb-2 pt-1">
             {/* Cascading Yollar */}
-            <div className="flex flex-col items-center shrink-0">
-              <span className="text-xs font-bold text-amber-300 mb-1.5">
-                Yollar ({myPlayer.roadsCount}) • Liman {harborRatioNeed}:1
-              </span>
-              <CascadingStructureStack type="road" count={myPlayer.roadsCount} />
-            </div>
+            {myPlayer.roadsCount > 0 && (
+              <div className="flex flex-col items-center shrink-0">
+                <span className="text-xs font-bold text-amber-300 mb-1.5">
+                  Yollar ({myPlayer.roadsCount}) • Liman {harborRatioNeed}:1
+                </span>
+                <CascadingStructureStack
+                  type="road"
+                  count={myPlayer.roadsCount}
+                  onInspectCard={onInspectCard}
+                />
+              </div>
+            )}
 
             {/* Cascading Şövalyeler */}
-            <div className="flex flex-col items-center shrink-0">
-              <span className="text-xs font-bold text-rose-300 mb-1.5">
-                Şövalyeler ({myPlayer.knightsCount}) • Hırsız Limiti: {7 + myPlayer.knightsCount}
-              </span>
-              <CascadingStructureStack type="knight" count={myPlayer.knightsCount} />
-            </div>
+            {myPlayer.knightsCount > 0 && (
+              <div className="flex flex-col items-center shrink-0">
+                <span className="text-xs font-bold text-rose-300 mb-1.5">
+                  Şövalyeler ({myPlayer.knightsCount}) • Hırsız Limiti: {7 + myPlayer.knightsCount}
+                </span>
+                <CascadingStructureStack
+                  type="knight"
+                  count={myPlayer.knightsCount}
+                  onInspectCard={onInspectCard}
+                />
+              </div>
+            )}
 
             {/* Yan Yana Köy / Şehir / Büyükşehir Slotları */}
             <div className="flex flex-col shrink-0">
@@ -335,7 +343,12 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
               </span>
               <div className="flex items-end gap-2.5">
                 {myPlayer.villageSlots.map((slot, idx) => (
-                  <VillageSlotVisual key={slot.id} slot={slot} index={idx} />
+                  <VillageSlotVisual
+                    key={slot.id}
+                    slot={slot}
+                    index={idx}
+                    onInspectCard={onInspectCard}
+                  />
                 ))}
               </div>
             </div>

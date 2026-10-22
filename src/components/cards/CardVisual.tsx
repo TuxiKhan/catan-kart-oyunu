@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ResourceType,
   StructureType,
@@ -419,11 +419,17 @@ export const CardVisual: React.FC<CardVisualProps> = ({
   onClick,
   className = '',
 }) => {
+  const [imgFailed, setImgFailed] = useState(false);
   const resolvedImageUrl = resolveCardImageUrl(card, customImageUrl);
+  const showImage = Boolean(resolvedImageUrl && !imgFailed);
 
-  const interactiveClasses = onClick && !disabled ? 'cursor-pointer hover:-translate-y-1 active:scale-95' : '';
-  const selectedClasses = selected ? 'ring-3 ring-yellow-400 -translate-y-2 shadow-lg shadow-yellow-500/30' : '';
-  const affordableClasses = affordable && !selected ? 'ring-2 ring-emerald-400/90 shadow-md shadow-emerald-500/20' : '';
+  const interactiveClasses =
+    onClick && !disabled ? 'cursor-pointer hover:-translate-y-1 active:scale-95' : '';
+  const selectedClasses = selected
+    ? 'ring-2 ring-amber-400 -translate-y-2 shadow-[0_0_16px_rgba(251,191,36,0.5)]'
+    : '';
+  const affordableClasses =
+    affordable && !selected ? 'ring-2 ring-emerald-400/90 shadow-md shadow-emerald-500/20' : '';
   const disabledClasses = disabled ? 'opacity-60 cursor-not-allowed' : '';
 
   // KART ARKASI GÖRÜNÜMÜ
@@ -464,21 +470,16 @@ export const CardVisual: React.FC<CardVisualProps> = ({
     return (
       <div
         onClick={!disabled ? onClick : undefined}
-        className={`relative rounded-xl border-2 bg-gradient-to-b ${backMeta.bg} ${backMeta.border} ${SIZE_CLASSES[size]} flex flex-col items-center justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${disabledClasses} ${className}`}
+        className={`relative rounded-xl border bg-gradient-to-b ${backMeta.bg} ${backMeta.border} ${SIZE_CLASSES[size]} flex flex-col items-center justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${disabledClasses} ${className}`}
       >
-        {resolvedImageUrl ? (
-          <>
-            <img
-              src={resolvedImageUrl}
-              alt={`${backMeta.title} ${backMeta.sub}`}
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            <div className="relative z-10 mt-auto w-full bg-black/55 backdrop-blur-[1px] px-1 py-0.5 text-center border-t border-white/15">
-              <span className="font-bold text-[10px] text-amber-100 leading-none block truncate">
-                {backMeta.title}
-              </span>
-            </div>
-          </>
+        {showImage ? (
+          <img
+            src={resolvedImageUrl}
+            alt={`${backMeta.title} ${backMeta.sub}`}
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
         ) : (
           <div className="w-full h-full rounded-lg border border-amber-200/20 flex flex-col items-center justify-center p-1 text-center bg-black/20">
             <div className="w-7 h-7 rounded-full border border-amber-400/50 bg-amber-500/10 flex items-center justify-center mb-1">
@@ -505,20 +506,16 @@ export const CardVisual: React.FC<CardVisualProps> = ({
     return (
       <div
         onClick={!disabled ? onClick : undefined}
-        className={`relative rounded-xl border-2 bg-gradient-to-b ${theme.bg} ${theme.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${affordableClasses} ${disabledClasses} ${className}`}
+        className={`relative rounded-xl border bg-gradient-to-b ${theme.bg} ${theme.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${affordableClasses} ${disabledClasses} ${className}`}
       >
-        {resolvedImageUrl ? (
-          <>
-            <img
-              src={resolvedImageUrl}
-              alt={labelTr}
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            {/* Kompakt üst şerit: Kart görselini kapatmadan ismi gösterir */}
-            <div className="relative z-10 bg-black/45 backdrop-blur-[1px] px-1.5 py-0.5 flex items-center justify-between border-b border-white/10">
-              <span className="font-bold text-[10px] text-white drop-shadow truncate">{labelTr}</span>
-            </div>
-          </>
+        {showImage ? (
+          <img
+            src={resolvedImageUrl}
+            alt={labelTr}
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
         ) : (
           <>
             <div className={`relative z-10 ${theme.headerBg} px-2 py-1 flex items-center justify-between border-b border-white/15`}>
@@ -552,38 +549,16 @@ export const CardVisual: React.FC<CardVisualProps> = ({
     return (
       <div
         onClick={!disabled ? onClick : undefined}
-        className={`relative rounded-xl border-2 bg-gradient-to-b ${meta.bg} ${meta.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${affordableClasses} ${disabledClasses} ${className}`}
+        className={`relative rounded-xl border bg-gradient-to-b ${meta.bg} ${meta.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${affordableClasses} ${disabledClasses} ${className}`}
       >
-        {resolvedImageUrl ? (
-          <>
-            <img
-              src={resolvedImageUrl}
-              alt={title}
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            {/* Kompakt Üst Başlık Şeridi - Üst üste dizilen (Cascading) Yol ve Şövalye kartlarında her zaman görünür kalır, Türkçe kart görselini kapatmaz */}
-            <div className="relative z-10 bg-black/55 backdrop-blur-[1px] px-1.5 py-0.5 flex items-center justify-between gap-1 border-b border-white/15">
-              <span className="font-bold text-[10px] text-white drop-shadow truncate">{title}</span>
-              {meta.vp > 0 ? (
-                <span className="shrink-0 bg-yellow-400/95 text-stone-950 font-black text-[9px] px-1 rounded-full">
-                  {meta.vp} ZP
-                </span>
-              ) : (
-                <span className={`shrink-0 text-[9px] font-semibold ${meta.accent}`}>
-                  {card.type === 'road' ? 'Liman' : '+1'}
-                </span>
-              )}
-            </div>
-
-            {/* Sadece Başlangıç Oyuncusu rozeti varsa kompakt göster */}
-            {card.hasFirstPlayerMarker && (
-              <div className="relative z-10 mt-auto mb-0.5 mx-auto">
-                <span className="bg-amber-400/95 text-stone-950 font-bold text-[8px] px-1.5 py-0.5 rounded-full shadow">
-                  ★ İlk Oyuncu
-                </span>
-              </div>
-            )}
-          </>
+        {showImage ? (
+          <img
+            src={resolvedImageUrl}
+            alt={title}
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
         ) : (
           <>
             <div className={`relative z-10 ${meta.headerBg} px-2 py-1 flex items-center justify-between gap-1 border-b border-white/20`}>
@@ -634,7 +609,7 @@ export const CardVisual: React.FC<CardVisualProps> = ({
         )}
 
         {typeof countBadge === 'number' && (
-          <span className="absolute top-6 right-1 z-20 bg-purple-400 text-stone-950 font-black text-[10px] px-1.5 py-0.5 rounded-full shadow">
+          <span className="absolute top-1 right-1 z-20 bg-purple-400 text-stone-950 font-black text-[10px] px-1.5 py-0.5 rounded-full shadow">
             x{countBadge}
           </span>
         )}
@@ -654,20 +629,16 @@ export const CardVisual: React.FC<CardVisualProps> = ({
     return (
       <div
         onClick={!disabled ? onClick : undefined}
-        className={`relative rounded-xl border-2 bg-gradient-to-b ${meta.bg} ${meta.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${disabledClasses} ${className}`}
+        className={`relative rounded-xl border bg-gradient-to-b ${meta.bg} ${meta.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${disabledClasses} ${className}`}
       >
-        {resolvedImageUrl ? (
-          <>
-            <img
-              src={resolvedImageUrl}
-              alt={meta.titleTr}
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            <div className="relative z-10 bg-black/50 backdrop-blur-[1px] px-1.5 py-0.5 border-b border-white/15 flex items-center justify-between">
-              <span className="font-bold text-[10px] text-white truncate">{meta.titleTr}</span>
-              <span className="text-[8px] text-red-300 font-semibold">Olay</span>
-            </div>
-          </>
+        {showImage ? (
+          <img
+            src={resolvedImageUrl}
+            alt={meta.titleTr}
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-cover"
+            draggable={false}
+          />
         ) : (
           <>
             <div className="bg-black/60 px-2 py-1 border-b border-white/15 flex items-center justify-between">
@@ -718,22 +689,16 @@ export const CardVisual: React.FC<CardVisualProps> = ({
   return (
     <div
       onClick={!disabled ? onClick : undefined}
-      className={`relative rounded-xl border-2 bg-gradient-to-b ${specialMeta.bg} ${specialMeta.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${disabledClasses} ${className}`}
+      className={`relative rounded-xl border bg-gradient-to-b ${specialMeta.bg} ${specialMeta.border} ${SIZE_CLASSES[size]} flex flex-col justify-between overflow-hidden select-none shadow-md transition-all ${interactiveClasses} ${selectedClasses} ${disabledClasses} ${className}`}
     >
-      {resolvedImageUrl ? (
-        <>
-          <img
-            src={resolvedImageUrl}
-            alt={specialMeta.titleTr}
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-          <div className="relative z-10 bg-black/50 backdrop-blur-[1px] px-1.5 py-0.5 border-b border-white/15 flex items-center justify-between">
-            <span className="font-bold text-[10px] text-yellow-200 truncate">{specialMeta.titleTr}</span>
-            <span className="bg-yellow-400 text-stone-950 font-black text-[9px] px-1 rounded-full">
-              {specialMeta.vpText}
-            </span>
-          </div>
-        </>
+      {showImage ? (
+        <img
+          src={resolvedImageUrl}
+          alt={specialMeta.titleTr}
+          onError={() => setImgFailed(true)}
+          className="w-full h-full object-cover"
+          draggable={false}
+        />
       ) : (
         <>
           <div className="bg-black/60 px-2 py-1 border-b border-white/15 flex items-center justify-between">

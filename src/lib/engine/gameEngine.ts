@@ -101,7 +101,7 @@ export function getHarborTradeRate(roadsCount: number): number {
 /**
  * Bir oyuncunun elinde istenen kaynakların tamamının bulunup bulunmadığını kontrol eder.
  */
-function hasResourcesInHand(
+export function hasResourcesInHand(
   hand: readonly ResourceType[],
   required: readonly ResourceType[]
 ): boolean {
@@ -127,7 +127,7 @@ function hasResourcesInHand(
 /**
  * Oyuncunun elinden belirtilen kaynakları çıkarır ve yeni el dizisini döner.
  */
-function removeResourcesFromHand(
+export function removeResourcesFromHand(
   hand: readonly ResourceType[],
   toRemove: readonly ResourceType[]
 ): ResourceType[] {
@@ -1463,11 +1463,13 @@ export function toClientGameView(
     buildingDeckCount: state.buildingDeck.length,
     cardMarket: [...state.cardMarket],
     metropolisDeckCount: state.metropolisDeck.length,
-    topMetropolisCard: state.metropolisDeck[0] ?? null,
+    topMetropolisCard: state.metropolisDeck[0]
+      ? { ...state.metropolisDeck[0] }
+      : null,
     eventDeckCount: state.eventDeck.length,
     eventDiscardCount: state.eventDiscard.length,
-    pendingEvent: state.pendingEvent ?? null,
-    activeTrade: state.activeTrade ?? null,
+    pendingEvent: state.pendingEvent ? structuredClone(state.pendingEvent) : null,
+    activeTrade: state.activeTrade ? structuredClone(state.activeTrade) : null,
     winnerPlayerId: state.winnerPlayerId ?? null,
     logs: [...state.logs],
   };

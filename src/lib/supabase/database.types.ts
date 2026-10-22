@@ -3,6 +3,7 @@
  * 001_initial_schema.sql ve 002_rls_and_realtime.sql ile %100 uyumludur.
  */
 
+import { toClientGameView } from '../engine/gameEngine';
 import type {
   ActiveTradeSession,
   AuthoritativeGameState,
@@ -197,6 +198,18 @@ export interface Database {
         };
         Returns: ClientGameView;
       };
+      sync_authoritative_room_state: {
+        Args: {
+          p_state: AuthoritativeGameState;
+        };
+        Returns: void;
+      };
+      load_authoritative_room_by_code: {
+        Args: {
+          p_room_code: string;
+        };
+        Returns: AuthoritativeGameState | null;
+      };
     };
   };
 }
@@ -240,51 +253,5 @@ export function mapTradeRowToActiveSession(row: TradeRow): ActiveTradeSession {
 /**
  * Sunucu tarafındaki tam AuthoritativeGameState durumundan belirli bir oyuncu için
  * RLS kurallarıyla birebir aynı maskelenmiş ClientGameView üretir.
- * - Diğer oyuncuların ellerindeki kart türleri gizlenir (sadece handCount görünür).
- * - Kapalı destelerin içerikleri gizlenir (sadece kart sayıları görünür).
  */
-export function maskGameStateForPlayer(
-  state: AuthoritativeGameState,
-  requestingPlayerId: string
-): ClientGameView {
-  const myHand = state.hands[requestingPlayerId]
-    ? [...state.hands[requestingPlayerId]]
-    : [];
-
-  const sanitizedPlayers: PublicPlayerState[] = state.players.map((p) => ({
-    ...p,
-    handCount: state.hands[p.playerId]
-      ? state.hands[p.playerId].length
-      : p.handCount,
-    villageSlots: p.villageSlots.map((slot) => ({ ...slot })),
-  }));
-
-  return {
-    roomId: state.roomId,
-    roomCode: state.roomCode,
-    status: state.status,
-    settings: { ...state.settings },
-    turnNumber: state.turnNumber,
-    activePlayerIndex: state.activePlayerIndex,
-    turnPhase: state.turnPhase,
-    turnStartedAt: state.turnStartedAt,
-    hasTradedThisTurn: state.hasTradedThisTurn,
-    hasUsedHarborThisTurn: state.hasUsedHarborThisTurn,
-    players: sanitizedPlayers,
-    myPlayerId: requestingPlayerId,
-    myHand,
-    resourceDeckCount: state.resourceDeck.length,
-    resourceDiscardCount: state.resourceDiscard.length,
-    buildingDeckCount: state.buildingDeck.length,
-    cardMarket: [...state.cardMarket],
-    metropolisDeckCount: state.metropolisDeck.length,
-    topMetropolisCard:
-      state.metropolisDeck.length > 0 ? { ...state.metropolisDeck[0] } : null,
-    eventDeckCount: state.eventDeck.length,
-    eventDiscardCount: state.eventDiscard.length,
-    pendingEvent: state.pendingEvent ? { ...state.pendingEvent } : null,
-    activeTrade: state.activeTrade ? { ...state.activeTrade } : null,
-    winnerPlayerId: state.winnerPlayerId ?? null,
-    logs: [...state.logs],
-  };
-}
+export const maskGameStateForPlayer = toClientGameView;

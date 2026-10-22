@@ -269,12 +269,12 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     const canStart = roomState.players.length >= 3 && roomState.players.length <= 4;
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-950 via-stone-900 to-amber-900 text-amber-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="max-w-4xl w-full bg-stone-900/90 border border-amber-500/30 rounded-2xl shadow-2xl p-6 md:p-8 backdrop-blur-md">
+      <div className="min-h-screen bg-gradient-to-br from-[#3a0404] via-[#220305] to-[#120203] text-amber-50 p-4 md:p-8 flex items-center justify-center">
+        <div className="max-w-4xl w-full bg-[#240203]/90 border-2 border-amber-400/40 rounded-2xl shadow-[0_24px_70px_rgba(0,0,0,0.85)] p-6 md:p-8 backdrop-blur-md">
           {/* Üst Başlık ve Oda Kodu */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-amber-500/20">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-amber-400/25">
             <div>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-400/40 mb-2 shadow-sm">
                 <Sparkles className="w-3.5 h-3.5" />
                 Catan Kart Oyunu • Bekleme Odası
               </span>
@@ -283,7 +283,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               </h1>
             </div>
 
-            <div className="flex items-center gap-3 bg-stone-950/80 border border-amber-500/40 px-4 py-3 rounded-xl">
+            <div className="flex items-center gap-3 bg-[#160102]/90 border border-amber-400/50 px-4 py-3 rounded-xl shadow-inner">
               <div>
                 <div className="text-[11px] uppercase tracking-wider text-amber-400/80">
                   6 Haneli Oda Kodu
@@ -295,7 +295,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <button
                 type="button"
                 onClick={handleCopyRoomCode}
-                className="p-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition"
+                className="p-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition cursor-pointer"
                 title="Oda Kodunu Kopyala"
               >
                 {copiedCode ? (
@@ -474,18 +474,35 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
   // LOBİ GİRİŞ, ODA KURMA VE ODAYA KATILMA EKRANI
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-950 via-stone-900 to-amber-900 text-amber-50 p-4 md:p-8 flex items-center justify-center">
+    <div className="min-h-screen bg-gradient-to-br from-[#3a0404] via-[#220305] to-[#120203] text-amber-50 p-4 md:p-8 flex items-center justify-center">
       <div className="max-w-5xl w-full space-y-6">
-        {/* Başlık */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/30 text-amber-300 text-xs font-semibold">
+        {/* Başlık & Dekoratif Kart Yelpazesi Rozeti */}
+        <div className="text-center space-y-2.5">
+          <div className="flex items-center justify-center gap-1.5 mb-1 select-none" aria-hidden="true">
+            <img
+              src="/cards/resource/resource_wheat.png"
+              alt=""
+              className="w-7 h-10 rounded-md border border-amber-300/70 shadow-md -rotate-12 translate-y-1 object-cover"
+            />
+            <img
+              src="/cards/building/building_settlement.png"
+              alt=""
+              className="w-8 h-11 rounded-md border-2 border-amber-400 shadow-lg z-10 object-cover"
+            />
+            <img
+              src="/cards/resource/resource_ore.png"
+              alt=""
+              className="w-7 h-10 rounded-md border border-amber-300/70 shadow-md rotate-12 translate-y-1 object-cover"
+            />
+          </div>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-semibold shadow-sm">
             <Sparkles className="w-3.5 h-3.5" />
             120 Kartlık Kutu Oyunu • Çok Oyunculu Lobi
           </div>
-          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-amber-100">
+          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-amber-100 drop-shadow">
             CATAN KART OYUNU
           </h1>
-          <p className="text-sm md:text-base text-stone-300 max-w-xl mx-auto">
+          <p className="text-sm md:text-base text-amber-100/80 max-w-xl mx-auto">
             Kayıt veya şifre olmadan takma adınızla anında giriş yapın, 3-4 kişilik oda kurun
             veya oda koduyla arkadaşlarınıza katılın.
           </p>
@@ -493,7 +510,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
         {/* Yeniden Bağlanma (Reconnection) Bildirimi */}
         {savedRoomCode && (
-          <div className="bg-emerald-950/80 border border-emerald-500/40 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="bg-emerald-950/85 border border-emerald-400/50 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
             <div className="flex items-center gap-3">
               <RefreshCw className="w-5 h-5 text-emerald-400 shrink-0" />
               <div className="text-sm">
@@ -508,7 +525,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <button
               type="button"
               onClick={(e) => handleJoinRoom(e, savedRoomCode)}
-              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs shrink-0 transition"
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs shrink-0 transition cursor-pointer"
             >
               Odaya Yeniden Bağlan ({savedRoomCode})
             </button>
@@ -522,7 +539,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
         )}
 
         {/* Misafir Kimliği (Takma Ad) Barı */}
-        <div className="bg-stone-900/90 border border-amber-500/30 rounded-2xl p-5 shadow-xl">
+        <div className="bg-[#240203]/90 border-2 border-amber-400/35 rounded-2xl p-5 shadow-xl">
           <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-2">
             1. Misafir Oyuncu Takma Adınız (Hızlı Giriş)
           </label>
@@ -534,10 +551,10 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                 onChange={(e) => setNickname(e.target.value)}
                 placeholder="Örn: Barbaros, Kaptan, Tüccar..."
                 maxLength={24}
-                className="w-full px-4 py-3 rounded-xl bg-stone-950 border border-stone-700 focus:border-amber-400 focus:outline-none text-amber-100 placeholder-stone-500 font-medium"
+                className="w-full px-4 py-3 rounded-xl bg-[#140102] border border-amber-400/30 focus:border-amber-400 focus:outline-none text-amber-100 placeholder-stone-500 font-medium"
               />
             </div>
-            <div className="flex items-center gap-2 text-xs text-stone-400 px-3 py-2 rounded-xl bg-stone-950/60 border border-stone-800">
+            <div className="flex items-center gap-2 text-xs text-amber-200/80 px-3 py-2 rounded-xl bg-[#140102]/80 border border-amber-400/20">
               <UserCheck className="w-4 h-4 text-amber-400 shrink-0" />
               <span>
                 Misafir Kimliği:{' '}
@@ -554,9 +571,9 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           {/* Sol: Oda Kurma Formu (RoomSettings) */}
           <form
             onSubmit={handleCreateRoom}
-            className="lg:col-span-7 bg-stone-900/90 border border-amber-500/30 rounded-2xl p-6 shadow-xl space-y-5"
+            className="lg:col-span-7 bg-[#240203]/90 border-2 border-amber-400/35 rounded-2xl p-6 shadow-xl space-y-5"
           >
-            <div className="flex items-center gap-2.5 border-b border-stone-800 pb-3">
+            <div className="flex items-center gap-2.5 border-b border-amber-400/20 pb-3">
               <PlusCircle className="w-5 h-5 text-amber-400" />
               <h2 className="text-lg font-bold text-amber-100">
                 Yeni Oda Kur (Oda Ayarları)
@@ -695,24 +712,24 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           {/* Sağ: Oda Kodu ile Katıl */}
           <form
             onSubmit={handleJoinRoom}
-            className="lg:col-span-5 bg-stone-900/90 border border-amber-500/30 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-6"
+            className="lg:col-span-5 bg-[#240203]/90 border-2 border-amber-400/35 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-6"
           >
             <div className="space-y-4">
-              <div className="flex items-center gap-2.5 border-b border-stone-800 pb-3">
+              <div className="flex items-center gap-2.5 border-b border-amber-400/20 pb-3">
                 <LogIn className="w-5 h-5 text-amber-400" />
                 <h2 className="text-lg font-bold text-amber-100">
                   Oda Kodu ile Katıl
                 </h2>
               </div>
 
-              <p className="text-xs text-stone-300 leading-relaxed">
+              <p className="text-xs text-amber-100/80 leading-relaxed">
                 Arkadaşınızın kurduğu 3 veya 4 kişilik odaya katılmak için 6 haneli oda kodunu
                 aşağıya girin. Bağlantınız koparsa aynı kodla kaldığınız yerden devam
                 edebilirsiniz.
               </p>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-stone-300 mb-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-amber-200/90 mb-2">
                   6 Haneli Oda Kodu
                 </label>
                 <input
@@ -721,14 +738,14 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                   onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
                   placeholder="ÖRN: CAT123"
                   maxLength={6}
-                  className="w-full px-4 py-3.5 rounded-xl bg-stone-950 border border-stone-700 focus:border-amber-400 focus:outline-none text-amber-200 font-mono text-xl tracking-widest text-center uppercase"
+                  className="w-full px-4 py-3.5 rounded-xl bg-[#140102] border border-amber-400/35 focus:border-amber-400 focus:outline-none text-amber-200 font-mono text-xl tracking-widest text-center uppercase"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full py-3.5 px-6 rounded-xl bg-stone-800 hover:bg-amber-500 hover:text-stone-950 text-amber-200 border border-amber-500/40 font-bold text-sm transition cursor-pointer"
+              className="w-full py-3.5 px-6 rounded-xl bg-[#3b0404] hover:bg-amber-500 hover:text-stone-950 text-amber-200 border border-amber-400/40 font-bold text-sm transition cursor-pointer shadow"
             >
               Mevcut Odaya Katıl
             </button>

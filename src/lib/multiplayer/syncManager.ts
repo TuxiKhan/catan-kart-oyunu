@@ -2,21 +2,27 @@ import { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import {
   ActiveTradeSession,
   AuthoritativeGameState,
-  BuildingCardType,
   ClientGameView,
-  EventCardType,
-  GameLogEntry,
-  INITIAL_BUILDING_DECK_COUNTS,
-  INITIAL_EVENT_DECK_COUNTS,
-  INITIAL_RESOURCE_COUNTS,
-  MetropolisCard,
-  MetropolisFaceMode,
   PublicPlayerState,
   ResourceType,
   RoomSettings,
   TradeCounterOffer,
 } from '@/types/game';
-import { refillCardMarket, setupInitialCardMarket } from '@/lib/engine/deck';
+import {
+  createBuildingDeck,
+  createEventDeck,
+  createResourceDeck,
+  drawResourceCards,
+  refillCardMarket,
+  setupInitialCardMarket,
+  shuffleArray,
+} from '@/lib/engine/deck';
+import {
+  hasResourcesInHand,
+  removeResourcesFromHand,
+  toClientGameView,
+} from '@/lib/engine/gameEngine';
+import { createMetropolisDeck } from '@/lib/engine/metropolisRegistry';
 import {
   createPlayerSupabaseClient,
   isSupabaseConfigured,
@@ -31,6 +37,15 @@ import {
   syncAuthoritativeStateToSupabase,
   upsertPlayerToSupabase,
 } from '@/lib/supabase/supabaseRoomRepository';
+
+export {
+  createResourceDeck as buildInitialResourceDeck,
+  createBuildingDeck as buildInitialBuildingDeck,
+  createEventDeck as buildInitialEventDeck,
+  createMetropolisDeck as buildInitialMetropolisDeck,
+  hasResourcesInHand as hasSufficientResources,
+  toClientGameView,
+};
 
 export interface GuestSession {
   playerId: string;
@@ -77,89 +92,6 @@ export function generateRoomCode(): string {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
-}
-
-function shuffleArray<T>(items: T[]): T[] {
-  const arr = [...items];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-export function buildInitialResourceDeck(): ResourceType[] {
-  const deck: ResourceType[] = [];
-  (Object.keys(INITIAL_RESOURCE_COUNTS) as ResourceType[]).forEach((res) => {
-    const count = INITIAL_RESOURCE_COUNTS[res];
-    for (let i = 0; i < count; i++) {
-      deck.push(res);
-    }
-  });
-  return shuffleArray(deck);
-}
-
-export function buildInitialBuildingDeck(): BuildingCardType[] {
-  const deck: BuildingCardType[] = [];
-  (Object.keys(INITIAL_BUILDING_DECK_COUNTS) as BuildingCardType[]).forEach((card) => {
-    const count = INITIAL_BUILDING_DECK_COUNTS[card];
-    for (let i = 0; i < count; i++) {
-      deck.push(card);
-    }
-  });
-  return shuffleArray(deck);
-}
-
-export function buildInitialEventDeck(): EventCardType[] {
-  const deck: EventCardType[] = [];
-  (Object.keys(INITIAL_EVENT_DECK_COUNTS) as EventCardType[]).forEach((ev) => {
-    const count = INITIAL_EVENT_DECK_COUNTS[ev];
-    for (let i = 0; i < count; i++) {
-      deck.push(ev);
-    }
-  });
-  return shuffleArray(deck);
-}
-
-export function buildInitialMetropolisDeck(faceMode: MetropolisFaceMode): MetropolisCard[] {
-  const bVariants = [
-    {
-      bVariantId: 'metropolis_b_1' as const,
-      titleTr: 'Büyükşehir (B) - Şövalyeler',
-      descriptionTr:
-        '3 Zafer Puanı. Üretimde +1 Kaynak verir. Oyun sonunda her Şövalye kartınız için +1 ZP kazandırır.',
-    },
-    {
-      bVariantId: 'metropolis_b_2' as const,
-      titleTr: 'Büyükşehir (B) - En Güçlü Ordu',
-      descriptionTr:
-        '3 Zafer Puanı. Üretimde +1 Kaynak verir. En Güçlü Ordu kartı sizdeyse ek +1 ZP kazandırır.',
-    },
-    {
-      bVariantId: 'metropolis_b_3' as const,
-      titleTr: 'Büyükşehir (B) - En Uzun Yol',
-      descriptionTr:
-        '3 Zafer Puanı. Üretimde +1 Kaynak verir. En Uzun Yol kartı sizdeyse ek +1 ZP kazandırır.',
-    },
-    {
-      bVariantId: 'metropolis_b_4' as const,
-      titleTr: 'Büyükşehir (B) - Yollar',
-      descriptionTr:
-        '3 Zafer Puanı. Üretimde +1 Kaynak verir. Oyun sonunda her 2 Yol kartınız için +1 ZP kazandırır.',
-    },
-  ];
-
-  return bVariants.map((variant, idx) => ({
-    id: `metropolis_${idx + 1}`,
-    face: faceMode,
-    bVariantId: faceMode === 'B' ? variant.bVariantId : undefined,
-    titleTr: faceMode === 'A' ? 'Büyükşehir (A Yüzü)' : variant.titleTr,
-    descriptionTr:
-      faceMode === 'A'
-        ? 'Bu Büyükşehir üretim aşamasında +2 Kaynak kartı üretir.'
-        : variant.descriptionTr,
-    productionBonus: faceMode === 'A' ? 2 : 1,
-  }));
 }
 
 export function createInitialPlayerState(
@@ -297,48 +229,6 @@ export function clearMemoryRoomStore(): void {
 }
 
 /**
- * İstemciye (Client) gönderilen maskelenmiş/güvenli oyun görünümü (RLS / Hile Korumalı)
- */
-export function toClientGameView(
-  state: AuthoritativeGameState,
-  viewerPlayerId: string
-): ClientGameView {
-  const myHand = [...(state.hands[viewerPlayerId] || [])];
-  const players = state.players.map((p) => ({
-    ...p,
-    handCount: (state.hands[p.playerId] || []).length,
-  }));
-
-  return {
-    roomId: state.roomId,
-    roomCode: state.roomCode,
-    status: state.status,
-    settings: { ...state.settings },
-    turnNumber: state.turnNumber,
-    activePlayerIndex: state.activePlayerIndex,
-    turnPhase: state.turnPhase,
-    turnStartedAt: state.turnStartedAt,
-    hasTradedThisTurn: state.hasTradedThisTurn,
-    hasUsedHarborThisTurn: state.hasUsedHarborThisTurn,
-    players,
-    myPlayerId: viewerPlayerId,
-    myHand,
-    resourceDeckCount: state.resourceDeck.length,
-    resourceDiscardCount: state.resourceDiscard.length,
-    buildingDeckCount: state.buildingDeck.length,
-    cardMarket: [...state.cardMarket],
-    metropolisDeckCount: state.metropolisDeck.length,
-    topMetropolisCard: state.metropolisDeck[0] || null,
-    eventDeckCount: state.eventDeck.length,
-    eventDiscardCount: state.eventDiscard.length,
-    pendingEvent: state.pendingEvent ? structuredClone(state.pendingEvent) : null,
-    activeTrade: state.activeTrade ? structuredClone(state.activeTrade) : null,
-    winnerPlayerId: state.winnerPlayerId ?? null,
-    logs: [...state.logs],
-  };
-}
-
-/**
  * Yeni Oda Oluşturma (3 veya 4 Kişilik)
  */
 export function createAuthoritativeRoom(
@@ -365,10 +255,10 @@ export function createAuthoritativeRoom(
   const now = new Date().toISOString();
 
   const hostPlayer = createInitialPlayerState(hostSession.playerId, hostSession.nickname, 0);
-  const resourceDeck = buildInitialResourceDeck();
-  const buildingDeck = buildInitialBuildingDeck();
-  const eventDeck = buildInitialEventDeck();
-  const metropolisDeck = buildInitialMetropolisDeck(settings.metropolisFaceMode);
+  const resourceDeck = createResourceDeck();
+  const buildingDeck = createBuildingDeck();
+  const eventDeck = createEventDeck();
+  const metropolisDeck = createMetropolisDeck(settings.metropolisFaceMode);
 
   const state: AuthoritativeGameState = {
     roomId,
@@ -557,14 +447,7 @@ export function startAuthoritativeGame(
     ...Array(nextState.players.length - 1).fill(false),
   ];
   const shuffledMarkers = rng
-    ? (() => {
-        const copy = [...initialSettlementMarkers];
-        for (let i = copy.length - 1; i > 0; i--) {
-          const j = Math.floor(rng() * (i + 1));
-          [copy[i], copy[j]] = [copy[j], copy[i]];
-        }
-        return copy;
-      })()
+    ? shuffleArray(initialSettlementMarkers, rng)
     : initialSettlementMarkers;
 
   let firstPlayerIndex = 0;
@@ -580,15 +463,16 @@ export function startAuthoritativeGame(
 
   // Kural Kitapçığı: Her oyuncuya başlangıçta kapalı 2'şer Kaynak kartı dağıtılır!
   for (const player of nextState.players) {
-    const initialCards: ResourceType[] = [];
-    for (let i = 0; i < 2; i++) {
-      const drawn = drawOneResourceCardInternal(nextState);
-      if (drawn) {
-        initialCards.push(drawn);
-      }
-    }
-    nextState.hands[player.playerId] = initialCards;
-    player.handCount = initialCards.length;
+    const drawRes = drawResourceCards(
+      nextState.resourceDeck,
+      nextState.resourceDiscard,
+      2,
+      rng
+    );
+    nextState.resourceDeck = drawRes.resourceDeck;
+    nextState.resourceDiscard = drawRes.resourceDiscard;
+    nextState.hands[player.playerId] = drawRes.drawn;
+    player.handCount = drawRes.drawn.length;
   }
 
   nextState.status = 'playing';
@@ -609,60 +493,6 @@ export function startAuthoritativeGame(
 
   saveRoomStateToStorage(nextState);
   return { ok: true, state: nextState };
-}
-
-/**
- * Desteden 1 Kapalı Kaynak Kartı Çekme Yardımcı Fonksiyonu
- */
-function drawOneResourceCardInternal(state: AuthoritativeGameState): ResourceType | null {
-  if (state.resourceDeck.length === 0 && state.resourceDiscard.length > 0) {
-    state.resourceDeck = shuffleArray(state.resourceDiscard);
-    state.resourceDiscard = [];
-  }
-  if (state.resourceDeck.length === 0) {
-    return null;
-  }
-  return state.resourceDeck.shift() || null;
-}
-
-/**
- * Bir oyuncunun elinde belirtilen kaynakların yeterli sayıda olup olmadığını kontrol eder
- */
-export function hasSufficientResources(
-  hand: ResourceType[],
-  required: ResourceType[]
-): boolean {
-  const counts: Record<ResourceType, number> = {
-    brick: 0,
-    wood: 0,
-    wool: 0,
-    wheat: 0,
-    ore: 0,
-  };
-  for (const r of hand) {
-    counts[r] = (counts[r] || 0) + 1;
-  }
-  for (const req of required) {
-    if (!counts[req] || counts[req] <= 0) {
-      return false;
-    }
-    counts[req] -= 1;
-  }
-  return true;
-}
-
-/**
- * Oyuncunun elinden kaynakları düşer ve yeni kaynakları ekler
- */
-function removeResourcesFromHand(hand: ResourceType[], toRemove: ResourceType[]): ResourceType[] {
-  const nextHand = [...hand];
-  for (const res of toRemove) {
-    const idx = nextHand.indexOf(res);
-    if (idx !== -1) {
-      nextHand.splice(idx, 1);
-    }
-  }
-  return nextHand;
 }
 
 /**
@@ -701,7 +531,7 @@ export function initiateTrade(
   }
 
   const initiatorHand = nextState.hands[initiatorPlayerId] || [];
-  if (offeredResources.length > 0 && !hasSufficientResources(initiatorHand, offeredResources)) {
+  if (offeredResources.length > 0 && !hasResourcesInHand(initiatorHand, offeredResources)) {
     return {
       ok: false,
       error: 'Teklif ettiğiniz kaynaklar elinizde yeterli sayıda bulunmuyor.',
@@ -784,7 +614,7 @@ export function submitCounterOffer(
   }
 
   const senderHand = nextState.hands[fromPlayerId] || [];
-  if (!hasSufficientResources(senderHand, offeredResources)) {
+  if (!hasResourcesInHand(senderHand, offeredResources)) {
     return {
       ok: false,
       error: 'Teklif ettiğiniz kaynaklar elinizde yeterli sayıda bulunmuyor.',
@@ -865,14 +695,14 @@ export function acceptTradeOffer(
   const activeHand = nextState.hands[activePlayerId] || [];
   const partnerHand = nextState.hands[partnerPlayer.playerId] || [];
 
-  if (!hasSufficientResources(activeHand, offer.requestedResources)) {
+  if (!hasResourcesInHand(activeHand, offer.requestedResources)) {
     return {
       ok: false,
       error: 'Karşı teklifte istenen kaynaklar aktif oyuncunun elinde yeterli sayıda yok.',
     };
   }
 
-  if (!hasSufficientResources(partnerHand, offer.offeredResources)) {
+  if (!hasResourcesInHand(partnerHand, offer.offeredResources)) {
     return {
       ok: false,
       error: 'Teklif sahibi oyuncunun elinde vaat ettiği kaynaklar kalmamış.',
@@ -890,7 +720,14 @@ export function acceptTradeOffer(
   ];
 
   // 2. ÖDÜL KURALI: Aktif oyuncu ile ticaret yapan diğer oyuncuya desteden otomatik 1 kapalı Kaynak kartı çekilir!
-  const bonusCard = drawOneResourceCardInternal(nextState);
+  const bonusDraw = drawResourceCards(
+    nextState.resourceDeck,
+    nextState.resourceDiscard,
+    1
+  );
+  nextState.resourceDeck = bonusDraw.resourceDeck;
+  nextState.resourceDiscard = bonusDraw.resourceDiscard;
+  const bonusCard = bonusDraw.drawn[0] ?? null;
   if (bonusCard) {
     updatedPartnerHand.push(bonusCard);
   }
