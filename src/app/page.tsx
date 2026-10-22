@@ -28,13 +28,19 @@ import {
   endTurn,
 } from '@/lib/engine/gameEngine';
 import { LobbyView } from '@/components/lobby/LobbyView';
-import { MarketArea, canAffordStructure } from '@/components/board/MarketArea';
+import {
+  MarketArea,
+  canAffordStructure,
+  getMissingResourcesDescription,
+  SelectedCardState,
+} from '@/components/board/MarketArea';
 import {
   OpponentArea,
   OpponentQuadrantSeat,
   VillageSlotVisual,
   CascadingStructureStack,
   InspectCardInfo,
+  STRUCTURE_CARD_DESCRIPTIONS,
 } from '@/components/board/OpponentArea';
 import {
   PlayerBoard,
@@ -42,6 +48,8 @@ import {
   getHarborRequiredCount,
 } from '@/components/board/PlayerBoard';
 import { FannedHand } from '@/components/board/FannedHand';
+import { TurnDisc } from '@/components/board/TurnDisc';
+import { TactileDropZone } from '@/components/board/TactileDropZone';
 import { CardInspectModal } from '@/components/modals/CardInspectModal';
 import { VictoryModal } from '@/components/modals/VictoryModal';
 import { TableDealOverlay } from '@/components/animations/TableDealOverlay';
@@ -54,14 +62,12 @@ import {
   Anchor,
   ArrowLeftRight,
   BookOpen,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
   Crown,
   History,
   LogOut,
-  Pickaxe,
   Sparkles,
   Trophy,
   Users,
@@ -76,11 +82,21 @@ interface InspectModalState {
   buildLabel?: string;
 }
 
+interface TactileToast {
+  text: string;
+  type: 'info' | 'error' | 'success';
+}
+
 export default function CatanCardGamePage() {
   const [authState, setAuthState] = useState<AuthoritativeGameState | null>(null);
   const [clientView, setClientView] = useState<ClientGameView | null>(null);
   const [viewerPlayerId, setViewerPlayerId] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Dokunsal Kart Etkileşimi (Seçim, Sürükle-Bırak & Geri Yaylanma / Shake)
+  const [selectedCard, setSelectedCard] = useState<SelectedCardState | null>(null);
+  const [shakingCardKey, setShakingCardKey] = useState<number | 'metropolis' | null>(null);
+  const [tactileToast, setTactileToast] = useState<TactileToast | null>(null);
 
   // Modallar ve İnceleme Katmanları
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
@@ -96,6 +112,15 @@ export default function CatanCardGamePage() {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
 
   const syncManagerRef = useRef<MultiplayerSyncManager | null>(null);
+
+  // Bildirimleri 3.5 saniye sonra otomatik temizle
+  useEffect(() => {
+    if (!tactileToast) return;
+    const timer = setTimeout(() => {
+      setTactileToast(null);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [tactileToast]);
 
   // Oda aktif olduğunda MultiplayerSyncManager bağla
   useEffect(() => {
@@ -170,6 +195,7 @@ export default function CatanCardGamePage() {
 
   const handleSwitchPerspective = (targetPlayerId: string) => {
     setViewerPlayerId(targetPlayerId);
+    setSelectedCard(null);
     if (syncManagerRef.current) {
       syncManagerRef.current.setViewerPlayerId(targetPlayerId);
     } else if (authState) {
@@ -185,10 +211,50 @@ export default function CatanCardGamePage() {
     setAuthState(null);
     setClientView(null);
     setActionError(null);
+    setSelectedCard(null);
   };
 
+  // --- OYUNCU VE MASA DURUMU ---
+  const activePlayer = clientView ? clientView.players[clientView.activePlayerIndex] : null;
+  const myPlayer = clientView
+    ? clientView.players.find((p) => p.playerId === clientView.myPlayerId) ??
+      clientView.players[0]
+    : null;
+  const isMyTurn = activePlayer?.playerId === myPlayer?.playerId;
+
+  // --- KURAL GEREĞİ 1. AŞAMA: OTOMATİK HASAT (Üretim Aşaması Otomasyonu) ---
+  // Tur başladığında oyuncunun 'Üretim Başlat' butonuna basmasına gerek yok!
+  // Sıra geldiğinde hasat otomatik tamamlanır, kaynaklar desteden çekilir ve Aksiyon aşamasına geçilir.
+  useEffect(() => {
+    if (!authState || !clientView || clientView.status !== 'playing') return;
+    if (clientView.turnPhase !== 'production' || clientView.pendingEvent) return;
+    if (!isMyTurn || !myPlayer) return;
+
+    const timer = setTimeout(() => {
+      try {
+        const prodCount = calculateProductionCount(myPlayer);
+        const next = executeProductionPhase(authState, myPlayer.playerId);
+        commitAuthoritativeUpdate(next);
+        setTactileToast({
+          text: `🌾 Hasat Dönemi: +${prodCount} kaynak topladınız! Aksiyon aşaması başladı.`,
+          type: 'info',
+        });
+      } catch (err) {
+        console.error('Otomatik hasat hatası:', err);
+      }
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [
+    clientView?.turnNumber,
+    clientView?.turnPhase,
+    clientView?.pendingEvent,
+    isMyTurn,
+    myPlayer?.playerId,
+  ]);
+
   // Lobi görünümü
-  if (!authState || !clientView || authState.status === 'waiting') {
+  if (!authState || !clientView || authState.status === 'waiting' || !myPlayer) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-[#2b080e] via-[#1a0408] to-[#100204] text-amber-50">
         <LobbyView
@@ -204,14 +270,9 @@ export default function CatanCardGamePage() {
     );
   }
 
-  const activePlayer = clientView.players[clientView.activePlayerIndex];
-  const myPlayer =
-    clientView.players.find((p) => p.playerId === clientView.myPlayerId) ??
-    clientView.players[0];
   const opponents = clientView.players.filter(
     (p) => p.playerId !== myPlayer.playerId
   );
-  const isMyTurn = activePlayer?.playerId === myPlayer.playerId;
   const winnerPlayer = clientView.winnerPlayerId
     ? clientView.players.find((p) => p.playerId === clientView.winnerPlayerId)
     : null;
@@ -219,8 +280,6 @@ export default function CatanCardGamePage() {
   // Üretim & Takas Hesaplamaları
   const productionTotal = calculateProductionCount(myPlayer);
   const harborRatioNeed = getHarborRequiredCount(myPlayer.roadsCount);
-  const canProduce =
-    isMyTurn && clientView.turnPhase === 'production' && !clientView.pendingEvent;
   const canAct =
     isMyTurn && clientView.turnPhase === 'action' && !clientView.pendingEvent;
   const canUseHarbor =
@@ -228,16 +287,28 @@ export default function CatanCardGamePage() {
   const canInitiateTrade =
     canAct && !clientView.hasTradedThisTurn && clientView.myHand.length > 0;
 
-  // --- OYUN MOTORU AKSİYONLARI ---
-  const handleProduce = () => {
-    try {
-      const next = executeProductionPhase(authState, myPlayer.playerId);
-      commitAuthoritativeUpdate(next);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Üretim hatası.');
+  const hasAvailableVillageForCity =
+    myPlayer.villageSlots.some((slot) => slot.upgradedTo === 'none');
+  const hasAvailableCityForMetropolis =
+    myPlayer.villageSlots.some((slot) => slot.upgradedTo === 'city');
+  const canBuildMetropolisNow =
+    canAct &&
+    clientView.metropolisDeckCount > 0 &&
+    hasAvailableCityForMetropolis &&
+    canAffordStructure(clientView.myHand, 'metropolis');
+
+  const triggerInvalidBuildShake = (
+    marketIndex: number | 'metropolis' | undefined,
+    reason: string
+  ) => {
+    if (marketIndex !== undefined) {
+      setShakingCardKey(marketIndex);
+      setTimeout(() => setShakingCardKey(null), 500);
     }
+    setTactileToast({ text: `⚠️ ${reason}`, type: 'error' });
   };
 
+  // --- OYUN MOTORU AKSİYONLARI ---
   const handleConfirmHarborTrade = (
     giveResource: ResourceType,
     takeResource: ResourceType
@@ -250,6 +321,10 @@ export default function CatanCardGamePage() {
         takeResource
       );
       commitAuthoritativeUpdate(next);
+      setTactileToast({
+        text: `⚓ Liman takası tamamlandı! 1 ${RESOURCE_LABELS_TR[takeResource]} aldınız.`,
+        type: 'success',
+      });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Liman takası hatası.');
     }
@@ -257,11 +332,39 @@ export default function CatanCardGamePage() {
 
   const handleBuildMarketCard = (_marketIndex: number, cardType: BuildingCardType) => {
     try {
+      const prevLongest = clientView.players.find((p) => p.hasLongestRoad)?.playerId;
+      const prevLargest = clientView.players.find((p) => p.hasLargestArmy)?.playerId;
+
       const next = executeBuildStructure(authState, myPlayer.playerId, cardType);
       commitAuthoritativeUpdate(next);
       setInspectModal(null);
+      setSelectedCard(null);
+
+      // Otomatik Takdim Kontrolleri (En Uzun Yol / En Güçlü Ordu)
+      const nextLongest = next.players.find((p) => p.hasLongestRoad)?.playerId;
+      const nextLargest = next.players.find((p) => p.hasLargestArmy)?.playerId;
+
+      if (nextLongest === myPlayer.playerId && prevLongest !== myPlayer.playerId) {
+        setTactileToast({
+          text: `👑 Tebrikler! En Uzun Yol takdim edildi (+2 ZP)!`,
+          type: 'success',
+        });
+      } else if (nextLargest === myPlayer.playerId && prevLargest !== myPlayer.playerId) {
+        setTactileToast({
+          text: `🛡️ Tebrikler! En Güçlü Ordu takdim edildi (+2 ZP)!`,
+          type: 'success',
+        });
+      } else {
+        const title = STRUCTURE_CARD_DESCRIPTIONS[cardType]?.title || cardType;
+        setTactileToast({
+          text: `🔨 ${title} başarıyla masanıza yerleştirildi!`,
+          type: 'success',
+        });
+      }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'İnşaat hatası.');
+      const msg = err instanceof Error ? err.message : 'İnşaat hatası.';
+      setActionError(msg);
+      setTactileToast({ text: `⚠️ ${msg}`, type: 'error' });
     }
   };
 
@@ -270,13 +373,68 @@ export default function CatanCardGamePage() {
       const next = executeBuildStructure(authState, myPlayer.playerId, 'metropolis');
       commitAuthoritativeUpdate(next);
       setInspectModal(null);
+      setSelectedCard(null);
+      setTactileToast({
+        text: `🏛️ Tebrikler! Şehrinizi Büyükşehre yükselttiniz (+1 ZP)!`,
+        type: 'success',
+      });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Büyükşehir inşası hatası.');
+      const msg = err instanceof Error ? err.message : 'Büyükşehir inşası hatası.';
+      setActionError(msg);
+      setTactileToast({ text: `⚠️ ${msg}`, type: 'error' });
     }
+  };
+
+  // Dokunsal Sürükle-Bırak veya Dokunarak Yerleştirme
+  const handleTactileDropCard = (cardType: StructureType, marketIndex?: number) => {
+    if (!canAct) {
+      triggerInvalidBuildShake(
+        marketIndex,
+        'Sıra sizde değil veya oyun aksiyon aşamasında değil!'
+      );
+      return;
+    }
+
+    if (cardType === 'metropolis') {
+      if (!canBuildMetropolisNow) {
+        let reason = 'Büyükşehir için yeterli kaynak yok (Gereken: 3 Yün + 1 Demir)';
+        if (!hasAvailableCityForMetropolis) {
+          reason = 'Büyükşehir kurmak için önce kurulu bir Şehriniz olmalıdır!';
+        }
+        triggerInvalidBuildShake('metropolis', reason);
+        return;
+      }
+      handleBuildMetropolis();
+      return;
+    }
+
+    const foundIdx =
+      marketIndex !== undefined
+        ? marketIndex
+        : clientView.cardMarket.indexOf(cardType as BuildingCardType);
+
+    if (foundIdx === -1) {
+      triggerInvalidBuildShake(undefined, `${cardType} markette bulunmuyor!`);
+      return;
+    }
+
+    if (!canAffordStructure(clientView.myHand, cardType)) {
+      const missing = getMissingResourcesDescription(clientView.myHand, cardType);
+      triggerInvalidBuildShake(foundIdx, `Yetersiz kaynak! Eksik: ${missing}`);
+      return;
+    }
+
+    if (cardType === 'city' && !hasAvailableVillageForCity) {
+      triggerInvalidBuildShake(foundIdx, 'Şehir kurmak için boş bir Köyünüz olmalıdır!');
+      return;
+    }
+
+    handleBuildMarketCard(foundIdx, cardType as BuildingCardType);
   };
 
   const handleEndTurn = () => {
     try {
+      setSelectedCard(null);
       const next = endTurn(authState, myPlayer.playerId);
       commitAuthoritativeUpdate(next);
     } catch (err) {
@@ -414,23 +572,46 @@ export default function CatanCardGamePage() {
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_at_center,_#3e0a14_0%,_#2b080e_65%,_#140205_100%)] text-amber-50 p-2 md:p-4 flex flex-col gap-3 max-w-[1680px] mx-auto select-none">
-      {/* ÜST GEZİNTİ ÇUBUĞU */}
-      <header className="rounded-2xl border border-amber-500/30 bg-[#160205]/95 px-3 py-2 flex flex-wrap items-center justify-between gap-2 shadow-xl backdrop-blur-md">
+    <main className="min-h-screen bg-[radial-gradient(ellipse_at_center,_#3e0a14_0%,_#2b080e_65%,_#140205_100%)] text-amber-50 p-1.5 sm:p-2 md:p-3 flex flex-col gap-2 max-w-[1720px] mx-auto select-none">
+      {/* DOKUNSAL GERİ BİLDİRİM / TOAST BANNER */}
+      {tactileToast && (
+        <div
+          role="status"
+          className={`fixed top-12 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-2xl shadow-2xl backdrop-blur-md text-xs sm:text-sm font-extrabold border animate-catan-card-place flex items-center gap-2 ${
+            tactileToast.type === 'success'
+              ? 'bg-emerald-950/95 border-emerald-400 text-emerald-100 ring-2 ring-emerald-400/40'
+              : tactileToast.type === 'error'
+              ? 'bg-rose-950/95 border-rose-400 text-rose-100 ring-2 ring-rose-400/40'
+              : 'bg-amber-950/95 border-amber-400 text-amber-100 ring-2 ring-amber-400/40'
+          }`}
+        >
+          <span>{tactileToast.text}</span>
+          <button
+            type="button"
+            onClick={() => setTactileToast(null)}
+            className="ml-2 text-stone-400 hover:text-white text-xs cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* ÜST GEZİNTİ ÇUBUĞU (Kompakt ve Şeffaf) */}
+      <header className="rounded-2xl border border-amber-500/30 bg-[#160205]/90 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 shadow-xl backdrop-blur-md">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Crown className="w-5 h-5 text-amber-400" />
-            <span className="font-black text-sm md:text-base tracking-wide text-amber-100">
+            <Crown className="w-4 h-4 text-amber-400" />
+            <span className="font-black text-xs sm:text-sm tracking-wide text-amber-100">
               CATAN KART OYUNU
             </span>
           </div>
 
-          <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200">
+          <span className="text-[11px] font-mono font-bold px-2 py-0.2 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-200">
             Oda: {clientView.roomCode}
           </span>
 
-          <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-stone-900 border border-stone-700 text-stone-200">
-            Tur #{clientView.turnNumber} • Aktif:{' '}
+          <span className="text-[11px] font-bold px-2 py-0.2 rounded-lg bg-stone-900 border border-stone-700 text-stone-200">
+            Tur #{clientView.turnNumber} • Sıra:{' '}
             <strong className="text-yellow-300">{activePlayer?.nickname}</strong>
           </span>
 
@@ -438,20 +619,20 @@ export default function CatanCardGamePage() {
             <button
               type="button"
               onClick={() => setIsTradeModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-sky-400 hover:bg-sky-300 text-stone-950 font-extrabold text-xs animate-pulse cursor-pointer shadow"
+              className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-sky-400 hover:bg-sky-300 text-stone-950 font-extrabold text-[11px] animate-pulse cursor-pointer shadow"
             >
-              <ArrowLeftRight className="w-3.5 h-3.5" />
-              <span>Canlı Takas Masası ({clientView.activeTrade.counterOffers.length} Teklif)</span>
+              <ArrowLeftRight className="w-3 h-3" />
+              <span>Canlı Takas Masası ({clientView.activeTrade.counterOffers.length})</span>
             </button>
           )}
         </div>
 
         {/* Sağ: RLS Perspektifi Seçici & Animasyon / Kural / Lobi Butonları */}
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* Oyuncu Perspektifi Değiştirici */}
-          <div className="flex items-center gap-1 bg-[#240306] border border-amber-500/30 rounded-xl px-2 py-0.5">
+          <div className="flex items-center gap-1 bg-[#240306] border border-amber-500/30 rounded-xl px-1.5 py-0.5">
             <Users className="w-3 h-3 text-amber-400 mr-0.5" />
-            <span className="text-[11px] text-stone-400 hidden sm:inline mr-1">
+            <span className="text-[10px] text-stone-400 hidden sm:inline mr-1">
               Görünüm:
             </span>
             {clientView.players.map((p) => {
@@ -462,7 +643,7 @@ export default function CatanCardGamePage() {
                   key={p.playerId}
                   type="button"
                   onClick={() => handleSwitchPerspective(p.playerId)}
-                  className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  className={`px-1.5 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
                     isViewing
                       ? 'bg-amber-500 text-stone-950 shadow'
                       : 'bg-stone-900 hover:bg-stone-800 text-stone-300'
@@ -476,47 +657,23 @@ export default function CatanCardGamePage() {
             })}
           </div>
 
-          {/* Desteyi Kar & Dağıt Animasyonu Test Butonu */}
-          <button
-            type="button"
-            onClick={() => {
-              setShuffleKey((k) => k + 1);
-              setIsDealOverlayActive(true);
-            }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-900/60 hover:bg-amber-800/80 border border-amber-400/40 text-amber-100 text-xs font-bold cursor-pointer"
-            title="Açılış kart karma ve dağıtma animasyonunu oynat"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-            <span className="hidden md:inline">Desteyi Dağıt</span>
-          </button>
-
           {/* Zafer Ekranı Butonu (Oyun bittiğinde veya inceleme için) */}
           {(clientView.status === 'finished' || winnerPlayer) && (
             <button
               type="button"
               onClick={() => setIsVictoryModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-stone-950 text-xs font-black cursor-pointer shadow"
+              className="flex items-center gap-1 px-2 py-1 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-stone-950 text-xs font-black cursor-pointer shadow"
             >
               <Trophy className="w-3.5 h-3.5" />
-              <span>Zafer Ekranı</span>
+              <span>Zafer</span>
             </button>
           )}
-
-          {/* Kural Kitapçığı */}
-          <button
-            type="button"
-            onClick={() => setIsRuleModalOpen(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#240306] hover:bg-amber-900/50 border border-amber-400/40 text-amber-100 text-xs font-bold cursor-pointer"
-          >
-            <BookOpen className="w-3.5 h-3.5 text-amber-300" />
-            <span className="hidden sm:inline">Kurallar</span>
-          </button>
 
           {/* Lobiye Dön */}
           <button
             type="button"
             onClick={handleLeaveToLobby}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-900 hover:bg-rose-950/80 border border-stone-700 hover:border-rose-500/50 text-stone-300 hover:text-rose-200 text-xs font-bold cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded-xl bg-stone-900 hover:bg-rose-950/80 border border-stone-700 hover:border-rose-500/50 text-stone-300 hover:text-rose-200 text-xs font-bold cursor-pointer"
             title="Lobiye Dön"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -527,7 +684,7 @@ export default function CatanCardGamePage() {
 
       {/* HATA BİLDİRİMİ */}
       {actionError && (
-        <div className="rounded-xl border border-rose-500/70 bg-rose-950/90 px-4 py-2 text-xs md:text-sm text-rose-100 flex items-center justify-between shadow">
+        <div className="rounded-xl border border-rose-500/70 bg-rose-950/90 px-3 py-1.5 text-xs text-rose-100 flex items-center justify-between shadow">
           <span>⚠️ {actionError}</span>
           <button
             type="button"
@@ -539,9 +696,9 @@ export default function CatanCardGamePage() {
         </div>
       )}
 
-      {/* 4 OYUNCULU KADRAN DÜZENİ vs 3 OYUNCULU DÜZEN (masa-md) */}
+      {/* 4 OYUNCULU KADRAN DÜZENİ vs 3 OYUNCULU DÜZEN */}
       {clientView.players.length === 4 ? (
-        <div className="relative w-full rounded-3xl border-2 border-amber-900/50 bg-[#2b080e] shadow-[0_25px_80px_rgba(0,0,0,0.85)] p-2 sm:p-4 overflow-hidden flex flex-col gap-2">
+        <div className="relative w-full rounded-3xl border-2 border-amber-900/50 bg-[#2b080e] shadow-[0_25px_80px_rgba(0,0,0,0.85)] p-2 sm:p-3 overflow-hidden flex flex-col gap-2">
           {/* Masa Arka Plan Grid Kesikli Çizgileri */}
           <div className="pointer-events-none absolute inset-0 grid grid-cols-2 grid-rows-2">
             <div className="border-r border-b border-dashed border-white/20" />
@@ -583,7 +740,7 @@ export default function CatanCardGamePage() {
           </div>
 
           {/* Orta Eksen: building row & Desteler (MarketArea) */}
-          <div className="relative z-20 my-1">
+          <div className="relative z-20 my-0.5">
             <MarketArea
               gameView={clientView}
               isMyTurn={isMyTurn}
@@ -591,6 +748,12 @@ export default function CatanCardGamePage() {
               onBuildMetropolis={handleBuildMetropolis}
               onOpenRuleSummary={() => setIsRuleModalOpen(true)}
               onInspectCard={handleInspectMarketCard}
+              selectedCard={selectedCard}
+              onSelectCard={setSelectedCard}
+              shakingCardKey={shakingCardKey}
+              onInvalidAttempt={(reason) =>
+                setTactileToast({ text: `⚠️ ${reason}`, type: 'error' })
+              }
             />
           </div>
 
@@ -608,35 +771,76 @@ export default function CatanCardGamePage() {
               <div />
             )}
 
-            {/* Sağ Alt Çeyrek: Aktif Oyuncu (Yapılar + Sağ Alt Yelpaze El) */}
-            <div className="relative flex flex-col items-end justify-between w-full h-full p-1.5 sm:p-2.5">
-              {/* Aktif Oyuncu Rozeti */}
-              <div
-                className={`z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full border backdrop-blur-xs shadow-md text-[11px] sm:text-xs mb-1 ${
-                  isMyTurn
-                    ? 'bg-amber-950/90 border-yellow-400 text-amber-50 ring-2 ring-yellow-400/40'
-                    : 'bg-black/45 border-white/20 text-amber-100/95'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                <span className="font-bold truncate max-w-[100px] sm:max-w-[140px]">
-                  {myPlayer.nickname} (Sen)
-                </span>
-                <span className="inline-flex items-center gap-0.5 bg-yellow-400 text-stone-950 font-black px-1.5 py-0.2 rounded-full text-[10px]">
-                  <Trophy className="w-2.5 h-2.5" />
-                  {myPlayer.victoryPoints} ZP
-                </span>
-                {isMyTurn && (
-                  <span className="bg-emerald-400 text-stone-950 font-extrabold text-[9px] px-1.5 py-0.2 rounded-full animate-pulse">
-                    Sıranda
+            {/* Sağ Alt Çeyrek: Aktif Oyuncu (Yapılar + Sağ Alt Yelpaze El + Dokunsal Alan + Hearthstone Tur Diski) */}
+            <div className="relative flex flex-col items-end justify-between w-full h-full p-1 sm:p-2">
+              {/* Aktif Oyuncu Rozeti & Liman/Takas Çipleri */}
+              <div className="flex items-center gap-1.5 flex-wrap justify-end mb-1">
+                <div
+                  className={`z-30 flex items-center gap-1.5 px-2 py-0.5 rounded-full border backdrop-blur-xs shadow-md text-[10px] sm:text-xs ${
+                    isMyTurn
+                      ? 'bg-amber-950/90 border-yellow-400 text-amber-50 ring-2 ring-yellow-400/40'
+                      : 'bg-black/45 border-white/20 text-amber-100/95'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                  <span className="font-bold truncate max-w-[100px] sm:max-w-[140px]">
+                    {myPlayer.nickname} (Sen)
                   </span>
+                  <span className="inline-flex items-center gap-0.5 bg-yellow-400 text-stone-950 font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                    <Trophy className="w-2.5 h-2.5" />
+                    {myPlayer.victoryPoints} ZP
+                  </span>
+                </div>
+
+                {/* Masaüstü Liman Çipi */}
+                {myPlayer.roadsCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={!canUseHarbor}
+                    onClick={() => setIsHarborModalOpen(true)}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shadow ${
+                      canUseHarbor
+                        ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer ring-1 ring-amber-300'
+                        : 'bg-stone-800/80 text-stone-400 border border-stone-700/60 cursor-pointer'
+                    }`}
+                  >
+                    <Anchor className="w-3 h-3" />
+                    <span>Liman {harborRatioNeed}:1</span>
+                  </button>
                 )}
+
+                {/* Masaüstü Takas Çipi */}
+                <button
+                  type="button"
+                  disabled={!canInitiateTrade}
+                  onClick={() => setIsTradeModalOpen(true)}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shadow ${
+                    clientView.activeTrade
+                      ? 'bg-sky-400 text-stone-950 ring-2 ring-sky-300 animate-pulse cursor-pointer'
+                      : canInitiateTrade
+                      ? 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
+                      : 'bg-stone-800/80 text-stone-400 border border-stone-700/60 cursor-pointer'
+                  }`}
+                >
+                  <ArrowLeftRight className="w-3 h-3" />
+                  <span>Takas</span>
+                </button>
               </div>
 
-              {/* Aktif Oyuncunun Yapıları & Sağ Alt Yelpaze Eli */}
-              <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 w-full">
+              {/* Dokunsal İnşa Bırakma Alanı */}
+              <div className="w-full mb-1">
+                <TactileDropZone
+                  canAct={canAct}
+                  selectedCard={selectedCard}
+                  onDropCard={handleTactileDropCard}
+                  onClearSelectedCard={() => setSelectedCard(null)}
+                />
+              </div>
+
+              {/* Aktif Oyuncunun Yapıları & Sağ Alt Yelpaze Eli & Hearthstone Tur Diski */}
+              <div className="flex items-center justify-end gap-2 w-full">
                 {/* Binalar */}
-                <div className="flex items-start gap-1.5 sm:gap-2 flex-wrap justify-end">
+                <div className="flex items-start gap-1 sm:gap-1.5 flex-wrap justify-end">
                   {myPlayer.villageSlots.map((slot, idx) => (
                     <VillageSlotVisual
                       key={slot.id}
@@ -673,106 +877,25 @@ export default function CatanCardGamePage() {
                     onInspectCard={handleInspectHandCard}
                   />
                 </div>
-              </div>
-            </div>
-          </div>
 
-          {/* 4P MASASI HIZLI YÖNETİM ÇUBUĞU (Main Desk Quick Trade & Action Dock) */}
-          <div className="relative z-30 flex flex-wrap items-center justify-between gap-2 bg-[#1c0306]/95 border-2 border-amber-500/30 rounded-2xl p-2.5 sm:px-4 shadow-xl mt-1">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* 1. ÜRETİM YAP */}
-              <button
-                type="button"
-                disabled={!canProduce}
-                onClick={handleProduce}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-extrabold text-xs sm:text-sm transition shadow ${
-                  canProduce
-                    ? 'bg-emerald-500 hover:bg-emerald-400 text-stone-950 cursor-pointer ring-2 ring-emerald-300 animate-bounce'
-                    : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-                }`}
-              >
-                <Pickaxe className="w-4 h-4" />
-                <span>Üretim Başlat (+{productionTotal})</span>
-              </button>
-
-              {/* 2. LİMAN TAKASI */}
-              <button
-                type="button"
-                disabled={!canUseHarbor}
-                onClick={() => setIsHarborModalOpen(true)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs sm:text-sm transition shadow ${
-                  canUseHarbor
-                    ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer'
-                    : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-                }`}
-              >
-                <Anchor className="w-4 h-4" />
-                <span>
-                  Liman Takası ({harborRatioNeed}:1)
-                  {clientView.hasUsedHarborThisTurn ? ' [Kullanıldı]' : ''}
-                </span>
-              </button>
-
-              {/* 3. OYUNCUYLA TAKAS */}
-              <button
-                type="button"
-                disabled={!canInitiateTrade}
-                onClick={() => setIsTradeModalOpen(true)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs sm:text-sm transition shadow ${
-                  clientView.activeTrade
-                    ? 'bg-sky-400 text-stone-950 animate-pulse ring-2 ring-sky-300 font-extrabold cursor-pointer'
-                    : canInitiateTrade
-                    ? 'bg-sky-500 hover:bg-sky-400 text-stone-950 cursor-pointer'
-                    : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-                }`}
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-                <span>
-                  Oyuncu Takası
-                  {clientView.activeTrade
-                    ? ` (${clientView.activeTrade.counterOffers.length} Teklif)`
-                    : clientView.hasTradedThisTurn
-                    ? ' [Kullanıldı]'
-                    : ''}
-                </span>
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 ml-auto">
-              {/* TUR SÜRESİ */}
-              {remainingSeconds !== null && (
-                <div
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-extrabold border ${
-                    remainingSeconds <= 15
-                      ? 'bg-rose-600/30 border-rose-400 text-rose-200 animate-pulse'
-                      : 'bg-[#2b0408] border-amber-500/40 text-amber-200'
-                  }`}
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>{remainingSeconds} sn</span>
+                {/* Hearthstone 'Turu Bitir' Diski */}
+                <div className="shrink-0 ml-1">
+                  <TurnDisc
+                    isMyTurn={isMyTurn}
+                    canAct={canAct}
+                    remainingSeconds={remainingSeconds}
+                    onEndTurn={handleEndTurn}
+                    activePlayerNickname={activePlayer?.nickname}
+                    turnPhase={clientView.turnPhase}
+                  />
                 </div>
-              )}
-
-              {/* 4. TURU BİTİR */}
-              <button
-                type="button"
-                disabled={!canAct}
-                onClick={handleEndTurn}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-extrabold text-xs sm:text-sm transition shadow ${
-                  canAct
-                    ? 'bg-rose-600 hover:bg-rose-500 text-white cursor-pointer ring-1 ring-rose-400'
-                    : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Turu Bitir</span>
-              </button>
+              </div>
             </div>
           </div>
         </div>
       ) : (
         /* 3 OYUNCULU DÜZEN (catan 3 player game main desk.md) */
-        <div className="relative w-full rounded-3xl border-2 border-amber-900/50 bg-[#2b080e] shadow-[0_25px_80px_rgba(0,0,0,0.85)] p-2 sm:p-4 overflow-hidden flex flex-col gap-3">
+        <div className="relative w-full rounded-3xl border-2 border-amber-900/50 bg-[#2b080e] shadow-[0_25px_80px_rgba(0,0,0,0.85)] p-2 sm:p-3 overflow-hidden flex flex-col gap-2">
           {/* 1. ÜST BÖLGE: Rakiplerin Alanı (Sol Üst & Sağ Üst) */}
           <OpponentArea
             opponents={opponents}
@@ -788,6 +911,12 @@ export default function CatanCardGamePage() {
             onBuildMetropolis={handleBuildMetropolis}
             onOpenRuleSummary={() => setIsRuleModalOpen(true)}
             onInspectCard={handleInspectMarketCard}
+            selectedCard={selectedCard}
+            onSelectCard={setSelectedCard}
+            shakingCardKey={shakingCardKey}
+            onInvalidAttempt={(reason) =>
+              setTactileToast({ text: `⚠️ ${reason}`, type: 'error' })
+            }
           />
 
           {/* 3. ALT BÖLGE: Aktif Oyuncunun Alanı (PlayerBoard) */}
@@ -795,19 +924,22 @@ export default function CatanCardGamePage() {
             gameView={clientView}
             myPlayer={myPlayer}
             isMyTurn={isMyTurn}
-            onProduce={handleProduce}
             onOpenHarborModal={() => setIsHarborModalOpen(true)}
             onOpenTradeModal={() => setIsTradeModalOpen(true)}
             onEndTurn={handleEndTurn}
             onInspectCard={handleInspectCard}
+            selectedMarketCard={selectedCard}
+            onClearSelectedCard={() => setSelectedCard(null)}
+            onBuildMarketCard={handleBuildMarketCard}
+            onBuildMetropolis={handleBuildMetropolis}
           />
         </div>
       )}
 
-      {/* AÇILIR KAPANIR OYUN GÜNLÜĞÜ (Game Logs Drawer) */}
+      {/* AÇILIR KAPANIR OYUN GÜNLÜĞÜ (Kompakt Masaüstü Şeridi) */}
       <section
         aria-label="Oyun Günlüğü"
-        className="rounded-2xl border border-amber-500/20 bg-[#160205]/95 p-2.5 shadow-md"
+        className="rounded-2xl border border-amber-500/20 bg-[#160205]/90 p-2 shadow-md"
       >
         <button
           type="button"
@@ -816,7 +948,7 @@ export default function CatanCardGamePage() {
         >
           <div className="flex items-center gap-1.5">
             <History className="w-3.5 h-3.5" />
-            <span>Oyun Günlüğü (Son Hamleler & Olaylar — Toplam {clientView.logs.length})</span>
+            <span>Oyun Günlüğü ({clientView.logs.length} Hamle)</span>
           </div>
           {isLogsExpanded ? (
             <ChevronUp className="w-4 h-4 text-amber-300" />
@@ -826,7 +958,7 @@ export default function CatanCardGamePage() {
         </button>
 
         {isLogsExpanded && (
-          <div className="mt-2 max-h-36 overflow-y-auto space-y-1 text-xs text-stone-300 pr-2 border-t border-white/10 pt-2">
+          <div className="mt-2 max-h-32 overflow-y-auto space-y-1 text-xs text-stone-300 pr-2 border-t border-white/10 pt-2">
             {[...clientView.logs].reverse().map((log) => (
               <div
                 key={log.id}

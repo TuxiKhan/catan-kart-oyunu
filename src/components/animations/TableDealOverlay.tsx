@@ -112,6 +112,10 @@ export function TableDealOverlay({
 }: TableDealOverlayProps) {
   const [phase, setPhase] = useState<"shuffle" | "deal">("shuffle");
 
+  // Keep a stable ref to onComplete so timer doesn't restart when parent re-renders
+  const onCompleteRef = React.useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
   useEffect(() => {
     if (!active) return;
 
@@ -119,24 +123,28 @@ export function TableDealOverlay({
 
     if (mode === "shuffle_only") {
       const doneTimer = window.setTimeout(() => {
-        onComplete();
-      }, 920);
+        onCompleteRef.current();
+      }, 900);
       return () => window.clearTimeout(doneTimer);
     }
 
     const phaseTimer = window.setTimeout(() => {
       setPhase("deal");
-    }, 900);
+    }, 850);
 
     const completeTimer = window.setTimeout(() => {
-      onComplete();
+      onCompleteRef.current();
     }, 2400);
 
     return () => {
       window.clearTimeout(phaseTimer);
       window.clearTimeout(completeTimer);
     };
-  }, [active, mode, triggerShuffleKey, onComplete]);
+  }, [active, mode, triggerShuffleKey]);
+
+  const handleSkip = () => {
+    onCompleteRef.current();
+  };
 
   const dealCards = useMemo<DealCardDescriptor[]>(() => {
     const cards: DealCardDescriptor[] = [];
@@ -246,7 +254,7 @@ export function TableDealOverlay({
       {/* Skip ("Geç") button in the top-right corner */}
       <button
         type="button"
-        onClick={onComplete}
+        onClick={handleSkip}
         className="absolute top-7 right-7 z-30 inline-flex items-center gap-2 rounded-lg border border-[#d99b26]/50 bg-[#221a13]/90 px-4 py-2 text-xs sm:text-sm font-medium text-[#f5ebd6] shadow-lg transition hover:border-[#d99b26] hover:bg-[#332419] active:scale-95 cursor-pointer"
       >
         <span>Geç (Skip)</span>

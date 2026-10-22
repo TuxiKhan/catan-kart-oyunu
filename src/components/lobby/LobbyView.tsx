@@ -10,13 +10,13 @@ import {
 } from '@/types/game';
 import {
   createAuthoritativeRoom,
-  createOrUpdateGuestSession,
-  getSavedGuestSession,
-  GuestSession,
+  createOrUpdatePlayerSession,
+  getSavedPlayerSession,
   joinAuthoritativeRoom,
   loadRoomStateFromStorage,
   MultiplayerSyncManager,
-  saveGuestSession,
+  PlayerSession,
+  savePlayerSession,
   saveRoomStateToStorage,
   startAuthoritativeGame,
   toClientGameView,
@@ -25,14 +25,15 @@ import { fetchAuthoritativeRoomFromSupabase } from '@/lib/supabase/supabaseRoomR
 import {
   Check,
   Clock,
+  Compass,
   Copy,
   Crown,
   LogIn,
   Play,
   PlusCircle,
   RefreshCw,
-  Shield,
   Sparkles,
+  User,
   UserCheck,
   UserPlus,
   Users,
@@ -44,7 +45,7 @@ export interface LobbyViewProps {
   onGameStarted?: (
     authoritativeState: AuthoritativeGameState,
     clientView: ClientGameView,
-    session: GuestSession
+    session: PlayerSession
   ) => void;
   onStateUpdated?: (
     authoritativeState: AuthoritativeGameState,
@@ -57,7 +58,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   onStateUpdated,
 }) => {
   const [nickname, setNickname] = useState<string>('');
-  const [session, setSession] = useState<GuestSession | null>(null);
+  const [session, setSession] = useState<PlayerSession | null>(null);
   const [joinCodeInput, setJoinCodeInput] = useState<string>('');
   const [savedRoomCode, setSavedRoomCode] = useState<string | null>(null);
 
@@ -72,12 +73,14 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
 
-  // Sayfa yüklendiğinde mevcut misafir oturumunu ve varsa son odayı kontrol et (Reconnection)
+  // Sayfa yüklendiğinde kalıcı oyuncu oturumunu ve varsa aktif odayı yükle (Reconnection)
   useEffect(() => {
-    const existing = getSavedGuestSession();
+    const existing = getSavedPlayerSession();
     if (existing) {
       setSession(existing);
-      setNickname(existing.nickname);
+      if (existing.nickname) {
+        setNickname(existing.nickname);
+      }
       if (existing.roomCode) {
         const storedRoom = loadRoomStateFromStorage(existing.roomCode);
         if (storedRoom) {
@@ -119,13 +122,13 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     };
   }, [roomState?.roomCode, session?.playerId]);
 
-  const ensureGuestSession = (): GuestSession | null => {
+  const ensurePlayerSession = (): PlayerSession | null => {
     const trimmed = nickname.trim();
     if (!trimmed) {
-      setErrorMessage('Lütfen oyuna girmek için bir Takma Ad (Nickname) yazın.');
+      setErrorMessage('Lütfen oyuna başlamak için bir oyuncu adı girin.');
       return null;
     }
-    const nextSession = createOrUpdateGuestSession(trimmed, session?.playerId);
+    const nextSession = createOrUpdatePlayerSession(trimmed, session?.playerId);
     setSession(nextSession);
     setErrorMessage(null);
     return nextSession;
@@ -133,7 +136,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    const activeSession = ensureGuestSession();
+    const activeSession = ensurePlayerSession();
     if (!activeSession) return;
 
     const settings: RoomSettings = {
@@ -149,7 +152,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       return;
     }
 
-    const updatedSession = saveGuestSession({
+    const updatedSession = savePlayerSession({
       ...activeSession,
       roomCode: result.state.roomCode,
     });
@@ -160,7 +163,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
   const handleJoinRoom = async (e: React.FormEvent, codeOverride?: string) => {
     e.preventDefault();
-    const activeSession = ensureGuestSession();
+    const activeSession = ensurePlayerSession();
     if (!activeSession) return;
 
     const targetCode = (codeOverride || joinCodeInput).trim().toUpperCase();
@@ -191,7 +194,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       return;
     }
 
-    const updatedSession = saveGuestSession({
+    const updatedSession = savePlayerSession({
       ...activeSession,
       roomCode: joinRes.state.roomCode,
     });
@@ -221,12 +224,12 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     const nextSeatNum = roomState.players.length + 1;
     if (nextSeatNum > roomState.settings.maxPlayers) return;
 
-    const testGuest = {
-      playerId: `test_player_${nextSeatNum}_${Date.now().toString(36).slice(-3)}`,
+    const testPlayer = {
+      playerId: `player_test_${nextSeatNum}_${Date.now().toString(36).slice(-4)}`,
       nickname: `Test Oyuncu ${nextSeatNum}`,
     };
 
-    const res = joinAuthoritativeRoom(roomState, testGuest);
+    const res = joinAuthoritativeRoom(roomState, testPlayer);
     if (res.ok && res.state) {
       syncManager.broadcastState(res.state);
       setErrorMessage(null);
@@ -285,8 +288,8 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
             <div className="flex items-center gap-3 bg-[#160102]/90 border border-amber-400/50 px-4 py-3 rounded-xl shadow-inner">
               <div>
-                <div className="text-[11px] uppercase tracking-wider text-amber-400/80">
-                  6 Haneli Oda Kodu
+                <div className="text-[11px] uppercase tracking-wider text-amber-400/80 font-medium">
+                  Oda Kodu
                 </div>
                 <div className="text-2xl font-mono font-extrabold tracking-widest text-amber-300">
                   {roomState.roomCode}
@@ -295,13 +298,19 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <button
                 type="button"
                 onClick={handleCopyRoomCode}
-                className="p-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-semibold transition cursor-pointer"
                 title="Oda Kodunu Kopyala"
               >
                 {copiedCode ? (
-                  <Check className="w-5 h-5 text-emerald-400" />
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span className="text-emerald-300 font-medium">Kopyalandı</span>
+                  </>
                 ) : (
-                  <Copy className="w-5 h-5" />
+                  <>
+                    <Copy className="w-4 h-4 text-amber-300" />
+                    <span>Kopyala</span>
+                  </>
                 )}
               </button>
             </div>
@@ -313,7 +322,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             </div>
           )}
 
-          {/* Oyuncu Koltukları (3 veya 4 Kişilik) */}
+          {/* Oyuncu Koltukları (3 veya 4 Kişilik Oyuncu Listesi) */}
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
             {Array.from({ length: roomState.settings.maxPlayers }).map((_, idx) => {
               const player = roomState.players[idx];
@@ -325,7 +334,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                   className={`p-4 rounded-xl border transition flex items-center justify-between ${
                     player
                       ? isMe
-                        ? 'bg-amber-900/30 border-amber-400/60'
+                        ? 'bg-amber-900/30 border-amber-400/60 shadow-sm'
                         : 'bg-stone-800/70 border-stone-700'
                       : 'bg-stone-950/40 border-dashed border-stone-700/70'
                   }`}
@@ -351,7 +360,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                               </span>
                             )}
                             {isMe && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                              <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-medium">
                                 Sen
                               </span>
                             )}
@@ -360,7 +369,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                             {player.isConnected ? (
                               <>
                                 <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                                <span className="text-emerald-300">Çevrimiçi • Hazır</span>
+                                <span className="text-emerald-300">Hazır</span>
                               </>
                             ) : (
                               <>
@@ -376,7 +385,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                             Boş Koltuk #{idx + 1}
                           </div>
                           <div className="text-xs text-stone-500">
-                            Oyuncu katılması bekleniyor...
+                            Oyuncu bekleniyor...
                           </div>
                         </>
                       )}
@@ -388,31 +397,23 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </div>
 
           {/* Seçili Oda Kuralları Özeti */}
-          <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3 bg-stone-950/60 p-4 rounded-xl border border-stone-800 text-xs">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 bg-stone-950/60 p-4 rounded-xl border border-stone-800 text-xs">
             <div>
-              <span className="text-stone-400 block">Oyuncu Kapasitesi</span>
+              <span className="text-stone-400 block mb-0.5">Oyuncu Kapasitesi</span>
               <span className="font-semibold text-amber-200">
-                {roomState.settings.maxPlayers} Kişilik
+                {roomState.settings.maxPlayers} Kişilik Oda
               </span>
             </div>
             <div>
-              <span className="text-stone-400 block">İlk Oyun Dizilimi</span>
+              <span className="text-stone-400 block mb-0.5">Oyun Modu</span>
               <span className="font-semibold text-amber-200">
-                {roomState.settings.useFirstGamePreset
-                  ? 'Açık (2 Köy, 1 Şövalye, 1 Yol, 1 Şehir)'
-                  : 'Kapalı (Rastgele Market)'}
+                {roomState.settings.useFirstGamePreset && roomState.settings.metropolisFaceMode === 'A'
+                  ? 'İlk Kez Oynuyorum (Dengeli Market + A Yüzü)'
+                  : 'Daha Önce Oynadım (Rastgele Market + B Yüzü)'}
               </span>
             </div>
             <div>
-              <span className="text-stone-400 block">Büyükşehir Modu</span>
-              <span className="font-semibold text-amber-200">
-                {roomState.settings.metropolisFaceMode === 'A'
-                  ? 'A Yüzü (+2 Kaynak)'
-                  : 'B Yüzü (Özel Yetenek)'}
-              </span>
-            </div>
-            <div>
-              <span className="text-stone-400 block">Tur Süresi</span>
+              <span className="text-stone-400 block mb-0.5">Tur Süresi</span>
               <span className="font-semibold text-amber-200">
                 {roomState.settings.turnTimeoutSeconds === 0
                   ? 'Süresiz'
@@ -428,17 +429,16 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                 <button
                   type="button"
                   onClick={handleQuickAddTestPlayer}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-200 text-sm font-medium border border-amber-500/30 transition"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-200 text-sm font-medium border border-amber-500/30 transition cursor-pointer"
                 >
                   <UserPlus className="w-4 h-4" />
-                  Hızlı Test Oyuncusu Ekle ({roomState.players.length + 1}/
-                  {roomState.settings.maxPlayers})
+                  Hızlı Oyuncu Ekle (Test)
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => setRoomState(null)}
-                className="px-4 py-2.5 rounded-xl bg-stone-800/60 hover:bg-stone-800 text-stone-300 text-sm transition"
+                className="px-4 py-2.5 rounded-xl bg-stone-800/60 hover:bg-stone-800 text-stone-300 text-sm transition cursor-pointer"
               >
                 Lobiye Dön
               </button>
@@ -457,8 +457,8 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               >
                 <Play className="w-4 h-4 fill-current" />
                 {canStart
-                  ? 'Oyunu Başlat (120 Kart)'
-                  : `En Az 3 Oyuncu Gerekli (${roomState.players.length}/3)`}
+                  ? 'Oyunu Başlat'
+                  : `Oyunu Başlat (En az 3 oyuncu gerekli: ${roomState.players.length}/3)`}
               </button>
             ) : (
               <div className="text-sm text-amber-300/90 flex items-center gap-2">
@@ -476,7 +476,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#3a0404] via-[#220305] to-[#120203] text-amber-50 p-4 md:p-8 flex items-center justify-center">
       <div className="max-w-5xl w-full space-y-6">
-        {/* Başlık & Dekoratif Kart Yelpazesi Rozeti */}
+        {/* Başlık & Dekoratif Kart Yelpazesi */}
         <div className="text-center space-y-2.5">
           <div className="flex items-center justify-center gap-1.5 mb-1 select-none" aria-hidden="true">
             <img
@@ -503,8 +503,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             CATAN KART OYUNU
           </h1>
           <p className="text-sm md:text-base text-amber-100/80 max-w-xl mx-auto">
-            Kayıt veya şifre olmadan takma adınızla anında giriş yapın, 3-4 kişilik oda kurun
-            veya oda koduyla arkadaşlarınıza katılın.
+            Oyuncu adınızı belirleyin, 3-4 kişilik yeni oda kurun veya oda koduyla arkadaşlarınıza katılın.
           </p>
         </div>
 
@@ -538,37 +537,46 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </div>
         )}
 
-        {/* Misafir Kimliği (Takma Ad) Barı */}
+        {/* Oyuncu Adı Giriş Barı */}
         <div className="bg-[#240203]/90 border-2 border-amber-400/35 rounded-2xl p-5 shadow-xl">
-          <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-2">
-            1. Misafir Oyuncu Takma Adınız (Hızlı Giriş)
+          <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-2 flex items-center gap-1.5">
+            <User className="w-4 h-4 text-amber-400" />
+            Oyuncu Adınız
           </label>
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <input
                 type="text"
                 value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-                placeholder="Örn: Barbaros, Kaptan, Tüccar..."
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setNickname(val);
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem('catan_player_name', val.trim());
+                  }
+                }}
+                placeholder="Oyunda görünecek adınızı yazın (Örn: Barbaros, Kaptan...)"
                 maxLength={24}
                 className="w-full px-4 py-3 rounded-xl bg-[#140102] border border-amber-400/30 focus:border-amber-400 focus:outline-none text-amber-100 placeholder-stone-500 font-medium"
               />
             </div>
-            <div className="flex items-center gap-2 text-xs text-amber-200/80 px-3 py-2 rounded-xl bg-[#140102]/80 border border-amber-400/20">
-              <UserCheck className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>
-                Misafir Kimliği:{' '}
-                <strong className="text-amber-200 font-mono">
-                  {session?.playerId ? session.playerId.slice(0, 12) : 'Otomatik'}
-                </strong>
-              </span>
-            </div>
+            {session?.playerId && (
+              <div className="flex items-center gap-2 text-xs text-amber-200/80 px-3 py-2 rounded-xl bg-[#140102]/80 border border-amber-400/20 shrink-0">
+                <UserCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  Oyuncu ID:{' '}
+                  <strong className="text-amber-200 font-mono">
+                    {session.playerId.slice(0, 8)}
+                  </strong>
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* İki Sütun: Yeni Oda Kur & Mevcut Odaya Katıl */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Sol: Oda Kurma Formu (RoomSettings) */}
+          {/* Sol: Oda Kurma Formu */}
           <form
             onSubmit={handleCreateRoom}
             className="lg:col-span-7 bg-[#240203]/90 border-2 border-amber-400/35 rounded-2xl p-6 shadow-xl space-y-5"
@@ -576,7 +584,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <div className="flex items-center gap-2.5 border-b border-amber-400/20 pb-3">
               <PlusCircle className="w-5 h-5 text-amber-400" />
               <h2 className="text-lg font-bold text-amber-100">
-                Yeni Oda Kur (Oda Ayarları)
+                Yeni Oda Kur
               </h2>
             </div>
 
@@ -592,7 +600,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                     key={count}
                     type="button"
                     onClick={() => setMaxPlayers(count)}
-                    className={`py-2.5 px-4 rounded-xl font-semibold text-sm border transition ${
+                    className={`py-2.5 px-4 rounded-xl font-semibold text-sm border transition cursor-pointer ${
                       maxPlayers === count
                         ? 'bg-amber-500/20 border-amber-400 text-amber-200'
                         : 'bg-stone-950/60 border-stone-800 text-stone-400 hover:border-stone-700'
@@ -604,70 +612,90 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               </div>
             </div>
 
-            {/* İlk Oyun Dizilimi */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-stone-300 mb-2">
-                İlk Oyun Market Dizilimi (2 Köy, 1 Şövalye, 1 Yol, 1 Şehir)
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setUseFirstGamePreset(true)}
-                  className={`py-2.5 px-3 rounded-xl font-semibold text-xs border transition ${
-                    useFirstGamePreset
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-200'
-                      : 'bg-stone-950/60 border-stone-800 text-stone-400'
-                  }`}
-                >
-                  Açık (Önerilen İlk Oyun)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUseFirstGamePreset(false)}
-                  className={`py-2.5 px-3 rounded-xl font-semibold text-xs border transition ${
-                    !useFirstGamePreset
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-200'
-                      : 'bg-stone-950/60 border-stone-800 text-stone-400'
-                  }`}
-                >
-                  Kapalı (Tamamen Rastgele)
-                </button>
-              </div>
-            </div>
-
-            {/* Büyükşehir Modu: A Yüzü / B Yüzü */}
+            {/* Oyun Seviyesi / Kural Modu Seçimi (Tek ve Sade 2 Seçenekli Kart) */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-stone-300 mb-2 flex items-center gap-1.5">
-                <Shield className="w-4 h-4 text-amber-400" />
-                Büyükşehir Kartları Modu
+                <Compass className="w-4 h-4 text-amber-400" />
+                Oyun Seviyesi ve Kurallar
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Seçenek 1: İlk Kez Oynuyorum */}
                 <button
                   type="button"
-                  onClick={() => setMetropolisFaceMode('A')}
-                  className={`p-3 rounded-xl text-left border transition ${
-                    metropolisFaceMode === 'A'
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-100'
-                      : 'bg-stone-950/60 border-stone-800 text-stone-400'
+                  onClick={() => {
+                    setUseFirstGamePreset(true);
+                    setMetropolisFaceMode('A');
+                  }}
+                  className={`p-4 rounded-xl text-left border-2 transition relative flex flex-col justify-between cursor-pointer ${
+                    useFirstGamePreset && metropolisFaceMode === 'A'
+                      ? 'bg-amber-500/20 border-amber-400 text-amber-100 shadow-lg'
+                      : 'bg-stone-950/60 border-stone-800 text-stone-400 hover:border-stone-700 hover:bg-stone-900/60'
                   }`}
                 >
-                  <div className="font-bold text-xs">A Yüzü (Standart Kural)</div>
-                  <div className="text-[11px] opacity-80 mt-0.5">
-                    Üretim aşamasında +2 Kaynak kartı verir.
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-bold text-sm text-amber-200">
+                        İlk Kez Oynuyorum
+                      </span>
+                      {useFirstGamePreset && metropolisFaceMode === 'A' && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500 text-stone-950">
+                          <Check className="w-3 h-3 stroke-[3]" /> Seçili
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-amber-100/90 font-medium mb-2.5">
+                      Yeni Başlayanlar İçin Dengeli Kurallar
+                    </div>
+                    <ul className="text-[11px] text-stone-300 space-y-1.5">
+                      <li className="flex items-start gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1 shrink-0" />
+                        <span><strong>Dengeli Pazar:</strong> 2 Köy, 1 Şövalye, 1 Yol, 1 Şehir</span>
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1 shrink-0" />
+                        <span><strong>A Yüzü Büyükşehirler:</strong> Üretimde +2 Kaynak kartı</span>
+                      </li>
+                    </ul>
                   </div>
                 </button>
+
+                {/* Seçenek 2: Daha Önce Oynadım */}
                 <button
                   type="button"
-                  onClick={() => setMetropolisFaceMode('B')}
-                  className={`p-3 rounded-xl text-left border transition ${
-                    metropolisFaceMode === 'B'
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-100'
-                      : 'bg-stone-950/60 border-stone-800 text-stone-400'
+                  onClick={() => {
+                    setUseFirstGamePreset(false);
+                    setMetropolisFaceMode('B');
+                  }}
+                  className={`p-4 rounded-xl text-left border-2 transition relative flex flex-col justify-between cursor-pointer ${
+                    !useFirstGamePreset && metropolisFaceMode === 'B'
+                      ? 'bg-amber-500/20 border-amber-400 text-amber-100 shadow-lg'
+                      : 'bg-stone-950/60 border-stone-800 text-stone-400 hover:border-stone-700 hover:bg-stone-900/60'
                   }`}
                 >
-                  <div className="font-bold text-xs">B Yüzü (Plug-and-Play)</div>
-                  <div className="text-[11px] opacity-80 mt-0.5">
-                    +1 Kaynak ve özel Büyükşehir yeteneği sunar.
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-bold text-sm text-amber-200">
+                        Daha Önce Oynadım
+                      </span>
+                      {!useFirstGamePreset && metropolisFaceMode === 'B' && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500 text-stone-950">
+                          <Check className="w-3 h-3 stroke-[3]" /> Seçili
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-amber-100/90 font-medium mb-2.5">
+                      Deneyimli Oyuncular İçin Taktiksel Mod
+                    </div>
+                    <ul className="text-[11px] text-stone-300 space-y-1.5">
+                      <li className="flex items-start gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1 shrink-0" />
+                        <span><strong>Rastgele Pazar:</strong> 120 kartlık desteden dinamik açılış</span>
+                      </li>
+                      <li className="flex items-start gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1 shrink-0" />
+                        <span><strong>B Yüzü Büyükşehirler:</strong> +1 Kaynak ve özel güçler</span>
+                      </li>
+                    </ul>
                   </div>
                 </button>
               </div>
@@ -689,7 +717,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                     key={opt.value}
                     type="button"
                     onClick={() => setTurnTimeoutSeconds(opt.value)}
-                    className={`py-2.5 px-3 rounded-xl font-semibold text-xs border transition ${
+                    className={`py-2.5 px-3 rounded-xl font-semibold text-xs border transition cursor-pointer ${
                       turnTimeoutSeconds === opt.value
                         ? 'bg-amber-500/20 border-amber-400 text-amber-200'
                         : 'bg-stone-950/60 border-stone-800 text-stone-400'

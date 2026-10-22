@@ -136,6 +136,19 @@ export const FannedHand: React.FC<FannedHandProps> = ({
             return (
               <div
                 key={typeof card === 'object' && card.id ? card.id : `${resType}-${index}`}
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(
+                    'application/json',
+                    JSON.stringify({
+                      source: 'hand',
+                      resourceType: resType,
+                      index,
+                    })
+                  );
+                  e.dataTransfer.setData('text/plain', resType);
+                  e.dataTransfer.effectAllowed = 'copyMove';
+                }}
                 style={{
                   transform: `translateX(${translateX}px) translateY(${translateY}px) rotate(${rotateDeg}deg) scale(${scale})`,
                   transformOrigin: '50% 100%',
@@ -157,8 +170,8 @@ export const FannedHand: React.FC<FannedHandProps> = ({
                   e.stopPropagation();
                   onInspectCard?.(card);
                 }}
-                title={`${RESOURCE_LABELS_TR[resType]} (İncele / Seç)`}
-                className="absolute bottom-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:!z-30"
+                title={`${RESOURCE_LABELS_TR[resType]} (Sürükle / Seç / İncele)`}
+                className="absolute bottom-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:!z-30 cursor-grab active:cursor-grabbing"
               >
                 <CardVisual
                   card={{ category: 'resource', type: resType }}

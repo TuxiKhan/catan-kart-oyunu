@@ -2,22 +2,25 @@
 
 import React, { useEffect, useState } from 'react';
 import {
+  BuildingCardType,
   ClientGameView,
   PublicPlayerState,
   ResourceType,
   RESOURCE_LABELS_TR,
+  StructureType,
 } from '../../types/game';
 import { CardVisual } from '../cards/CardVisual';
 import { CascadingStructureStack, InspectCardInfo, VillageSlotVisual } from './OpponentArea';
 import { FannedHand } from './FannedHand';
+import { TurnDisc } from './TurnDisc';
+import { TactileDropZone } from './TactileDropZone';
 import {
   Anchor,
   ArrowRightLeft,
-  CheckCircle2,
   Clock,
   Crown,
-  Pickaxe,
   Shield,
+  Sparkles,
   Trophy,
 } from 'lucide-react';
 
@@ -25,12 +28,20 @@ export interface PlayerBoardProps {
   gameView: ClientGameView;
   myPlayer: PublicPlayerState;
   isMyTurn: boolean;
-  onProduce: () => void;
+  onProduce?: () => void;
   onOpenHarborModal: () => void;
   onOpenTradeModal: () => void;
   onEndTurn: () => void;
   onInspectCard?: (info: InspectCardInfo) => void;
   isFourPlayer?: boolean;
+  selectedMarketCard?: {
+    marketIndex: number | 'metropolis';
+    cardType: StructureType;
+    title?: string;
+  } | null;
+  onClearSelectedCard?: () => void;
+  onBuildMarketCard?: (marketIndex: number, cardType: BuildingCardType) => void;
+  onBuildMetropolis?: () => void;
 }
 
 const RESOURCE_ORDER: ResourceType[] = ['brick', 'wood', 'wool', 'wheat', 'ore'];
@@ -60,12 +71,15 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
   gameView,
   myPlayer,
   isMyTurn,
-  onProduce,
   onOpenHarborModal,
   onOpenTradeModal,
   onEndTurn,
   onInspectCard,
   isFourPlayer = false,
+  selectedMarketCard = null,
+  onClearSelectedCard,
+  onBuildMarketCard,
+  onBuildMetropolis,
 }) => {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
 
@@ -109,8 +123,6 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
   const harborRatioNeed = getHarborRequiredCount(myPlayer.roadsCount);
   const hasEnoughForHarbor = RESOURCE_ORDER.some((r) => handCounts[r] >= harborRatioNeed);
 
-  const canProduce =
-    isMyTurn && gameView.turnPhase === 'production' && !gameView.pendingEvent;
   const canAct =
     isMyTurn && gameView.turnPhase === 'action' && !gameView.pendingEvent;
 
@@ -123,165 +135,99 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
   const canInitiateTrade =
     canAct && !gameView.hasTradedThisTurn && gameView.myHand.length > 0;
 
+  const handleDropCard = (cardType: StructureType, marketIndex?: number) => {
+    if (cardType === 'metropolis') {
+      onBuildMetropolis?.();
+    } else if (marketIndex !== undefined && onBuildMarketCard) {
+      onBuildMarketCard(marketIndex, cardType as BuildingCardType);
+    } else if (onBuildMarketCard) {
+      // Find market index of this cardType
+      const foundIdx = gameView.cardMarket.indexOf(cardType as BuildingCardType);
+      if (foundIdx !== -1) {
+        onBuildMarketCard(foundIdx, cardType as BuildingCardType);
+      }
+    }
+    onClearSelectedCard?.();
+  };
+
   return (
     <section
-      aria-label="Oyuncu Alanı ve Kontroller"
-      className={`w-full rounded-2xl border-2 p-3 md:p-4 shadow-2xl transition-all ${
+      aria-label="Oyuncu Alanı ve Keçe Masa"
+      className={`relative w-full rounded-3xl border-2 p-2 sm:p-3.5 shadow-2xl transition-all duration-300 ${
         isMyTurn
-          ? 'border-yellow-400 bg-gradient-to-b from-stone-900 via-stone-950 to-black ring-2 ring-yellow-400/30'
-          : 'border-amber-500/30 bg-stone-950/95'
+          ? 'border-yellow-400/90 bg-gradient-to-b from-[#22070c]/90 via-[#1a0408]/95 to-black/95 ring-2 ring-yellow-400/30'
+          : 'border-amber-900/40 bg-[#160307]/90'
       }`}
     >
-      {/* Üst Satır: Oyuncu Kimliği, Zafer Puanı, Tur Aşaması ve Tur Sayacı */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-amber-500/20">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-400 shadow shadow-emerald-400/50" />
-            <h2 className="text-base md:text-lg font-extrabold text-amber-100">
+      {/* ÜST MİNİMAL BİLGİ ŞERİDİ (Hantal kutular yerine zarif masa rozetleri) */}
+      <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 mb-2 border-b border-white/10">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          {/* Oyuncu Kimliği */}
+          <div className="flex items-center gap-1.5 bg-black/40 border border-amber-500/30 px-2.5 py-0.5 rounded-full">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow shadow-emerald-400/50" />
+            <h2 className="text-xs sm:text-sm font-extrabold text-amber-100">
               {myPlayer.nickname} (Sen)
             </h2>
           </div>
 
-          <div className="flex items-center gap-1 bg-yellow-400 text-stone-950 font-black px-3 py-1 rounded-xl text-xs md:text-sm shadow">
-            <Trophy className="w-4 h-4" />
+          {/* Zafer Puanı */}
+          <div className="flex items-center gap-1 bg-yellow-400 text-stone-950 font-black px-2.5 py-0.5 rounded-full text-xs shadow">
+            <Trophy className="w-3.5 h-3.5" />
             <span>{myPlayer.victoryPoints} / 7 ZP</span>
           </div>
 
-          <span className="text-xs px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-200 font-semibold">
-            Tur Üretimin: +{productionTotal} Kaynak (Rakipler: +1)
+          {/* Üretim Bilgisi (Hasat otomatik olduğu için sakin bir bilgi hapı) */}
+          <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-400/20 text-amber-200">
+            🌾 Otomatik Hasat: +{productionTotal}
           </span>
 
           {myPlayer.hasLongestRoad && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-yellow-500/20 border border-yellow-400 text-yellow-200 text-xs font-bold">
-              <Crown className="w-3.5 h-3.5 text-yellow-400" /> En Uzun Yol (+2 ZP)
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-500/20 border border-yellow-400 text-yellow-200 text-[10px] font-bold">
+              <Crown className="w-3 h-3 text-yellow-400" /> En Uzun Yol (+2 ZP)
             </span>
           )}
 
           {myPlayer.hasLargestArmy && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 border border-rose-400 text-rose-200 text-xs font-bold">
-              <Shield className="w-3.5 h-3.5 text-rose-400" /> En Güçlü Ordu (+2 ZP)
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-400 text-rose-200 text-[10px] font-bold">
+              <Shield className="w-3 h-3 text-rose-400" /> En Güçlü Ordu (+2 ZP)
             </span>
           )}
         </div>
 
-        {/* Sağ Üst: Tur Durumu & Süre Sayacı */}
-        <div className="flex items-center gap-2">
-          <div
-            className={`px-3 py-1 rounded-xl text-xs font-bold border ${
-              isMyTurn
-                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
-                : 'bg-stone-800 border-stone-700 text-stone-300'
-            }`}
+        {/* Canlı Takas Masası Bildirimi (Varsa) */}
+        {gameView.activeTrade && (
+          <button
+            type="button"
+            onClick={onOpenTradeModal}
+            className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-sky-400 hover:bg-sky-300 text-stone-950 font-extrabold text-[10px] sm:text-xs animate-pulse cursor-pointer shadow"
           >
-            {isMyTurn
-              ? gameView.turnPhase === 'production'
-                ? 'Sıra Sende: 1. Üretim Aşaması'
-                : gameView.turnPhase === 'resolving_event'
-                ? 'Olay Çözümleniyor...'
-                : 'Sıra Sende: 2. İnşaat & Ticaret'
-              : 'Rakibin Turu Bekleniyor'}
-          </div>
-
-          {remainingSeconds !== null ? (
-            <div
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-extrabold border ${
-                remainingSeconds <= 15
-                  ? 'bg-rose-600/30 border-rose-400 text-rose-200 animate-pulse'
-                  : 'bg-amber-950/80 border-amber-500/40 text-amber-200'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>{remainingSeconds} sn</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-medium bg-stone-900 border border-stone-700 text-stone-400">
-              <Clock className="w-3.5 h-3.5" />
-              <span>Süresiz</span>
-            </div>
-          )}
-        </div>
+            <ArrowRightLeft className="w-3 h-3" />
+            <span>Takas Masası Açık ({gameView.activeTrade.counterOffers.length} Teklif)</span>
+          </button>
+        )}
       </div>
 
-      {/* Tur Aksiyon Butonları (Mobil ve Masaüstü Duyarlı Kontrol Çubuğu) */}
-      <div className="flex flex-wrap items-center gap-2 mb-4 bg-stone-900/90 p-2.5 rounded-xl border border-amber-500/20">
-        {/* 1. ÜRETİM YAP */}
-        <button
-          type="button"
-          disabled={!canProduce}
-          onClick={onProduce}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl font-extrabold text-xs md:text-sm transition shadow ${
-            canProduce
-              ? 'bg-emerald-500 hover:bg-emerald-400 text-stone-950 cursor-pointer ring-2 ring-emerald-300 animate-bounce'
-              : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-          }`}
-        >
-          <Pickaxe className="w-4 h-4" />
-          <span>Üretim Başlat (Sana +{productionTotal}, Rakiplere +1 Kaynak)</span>
-        </button>
-
-        {/* 2. LİMAN ETKİSİ (YOL TAKASI) */}
-        <button
-          type="button"
-          disabled={!canUseHarbor}
-          onClick={onOpenHarborModal}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs md:text-sm transition shadow ${
-            canUseHarbor
-              ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer'
-              : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-          }`}
-        >
-          <Anchor className="w-4 h-4" />
-          <span>
-            Liman Takası ({harborRatioNeed}:1)
-            {gameView.hasUsedHarborThisTurn ? ' [Kullanıldı]' : ''}
-          </span>
-        </button>
-
-        {/* 3. OYUNCUYLA TAKAS BAŞLAT */}
-        <button
-          type="button"
-          disabled={!canInitiateTrade}
-          onClick={onOpenTradeModal}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs md:text-sm transition shadow ${
-            canInitiateTrade
-              ? 'bg-sky-500 hover:bg-sky-400 text-stone-950 cursor-pointer'
-              : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-          }`}
-        >
-          <ArrowRightLeft className="w-4 h-4" />
-          <span>
-            Oyuncuyla Takas
-            {gameView.hasTradedThisTurn ? ' [Kullanıldı]' : ''}
-          </span>
-        </button>
-
-        {/* 4. TURU BİTİR */}
-        <button
-          type="button"
-          disabled={!canAct}
-          onClick={onEndTurn}
-          className={`ml-auto flex items-center gap-2 px-4 py-2 rounded-xl font-extrabold text-xs md:text-sm transition shadow ${
-            canAct
-              ? 'bg-rose-600 hover:bg-rose-500 text-white cursor-pointer'
-              : 'bg-stone-800 text-stone-500 cursor-not-allowed'
-          }`}
-        >
-          <CheckCircle2 className="w-4 h-4" />
-          <span>Turu Bitir</span>
-        </button>
+      {/* DOKUNSAL İNŞA VE KART BIRAKMA ALANI (Tuğla / Yol / Köy buraya sürüklenir) */}
+      <div className="mb-2.5">
+        <TactileDropZone
+          canAct={canAct}
+          selectedCard={selectedMarketCard}
+          onDropCard={handleDropCard}
+          onClearSelectedCard={onClearSelectedCard}
+        />
       </div>
 
-      {/* Alt İki Sütun: Sol = Oyuncunun Elindeki Açık Kaynaklar (Yelpaze Düzeni), Sağ = Oyuncunun Yapıları */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
-        {/* ELDEKİ AÇIK KAYNAK KARTLARI (FannedHand) */}
-        <div className="lg:col-span-5 flex flex-col items-center justify-center p-2">
-          <div className="flex items-center justify-between w-full mb-1 px-2">
-            <h3 className="text-xs md:text-sm font-bold text-amber-200">
-              Elimdeki Kaynak Kartları ({gameView.myHand.length})
-            </h3>
+      {/* ANA MASA KATMANI: Sol = Yelpaze El, Orta = Yapılar + Liman/Takas Çipleri, Sağ = Hearthstone Tur Diski */}
+      <div className="flex flex-col lg:flex-row items-center justify-between gap-3">
+        {/* SOL: ELDEKİ KAYNAK KARTLARI (FannedHand) */}
+        <div className="flex flex-col items-center justify-center shrink-0">
+          <div className="flex items-center justify-between w-full mb-0.5 px-2">
+            <span className="text-[11px] font-bold text-amber-200/90">
+              Eldeki Kaynaklar ({gameView.myHand.length})
+            </span>
             {gameView.myHand.length > 7 + myPlayer.knightsCount && (
-              <span className="text-[10px] px-2 py-0.5 rounded bg-rose-500/20 border border-rose-400 text-rose-200 font-semibold">
-                &gt;{7 + myPlayer.knightsCount} Kart (Hırsız Riski!)
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 border border-rose-400 text-rose-200 font-semibold">
+                &gt;{7 + myPlayer.knightsCount} (Hırsız Riski!)
               </span>
             )}
           </div>
@@ -295,25 +241,63 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
                 imageUrl: `/cards/resource/resource_${resType}.png`,
                 title: RESOURCE_LABELS_TR[resType],
                 subtitle: 'Hammadde Kaynak Kartı',
-                description: `Elinizdeki ${RESOURCE_LABELS_TR[resType]} kaynağı. İnşaat ve takaslarda kullanılır.`,
+                description: `Elinizdeki ${RESOURCE_LABELS_TR[resType]} kaynağı. İnşaat ve takaslarda kullanılır. Masaya veya takasa sürükleyebilirsiniz.`,
               });
             }}
           />
         </div>
 
-        {/* OYUNCUNUN İNŞA ETTİĞİ YAPILAR */}
-        <div className="lg:col-span-7 rounded-xl bg-stone-900/70 border border-amber-500/20 p-3">
-          <h3 className="text-xs md:text-sm font-bold text-amber-200 mb-2">
-            Yapılarım (Yol, Şövalye ve Köy / Şehir / Büyükşehir Slotları)
-          </h3>
+        {/* ORTA: OYUNCUNUN İNŞA ETTİĞİ YAPILAR & DOKUNSAL LİMAN / TAKAS MASASI */}
+        <div className="flex-1 flex flex-col items-center justify-center w-full min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] sm:text-[11px] font-bold text-amber-200/80">
+              Kurulu Yapılarım
+            </span>
 
-          <div className="flex items-start gap-3 sm:gap-4 overflow-x-auto pb-2 pt-1">
+            {/* Dokunsal Masaüstü Liman Çipi */}
+            {myPlayer.roadsCount > 0 && (
+              <button
+                type="button"
+                disabled={!canUseHarbor}
+                onClick={onOpenHarborModal}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition shadow ${
+                  canUseHarbor
+                    ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer ring-1 ring-amber-300 animate-pulse'
+                    : 'bg-stone-800/80 text-stone-400 border border-stone-700/60 cursor-pointer'
+                }`}
+                title={`Liman Etkisi: ${harborRatioNeed}:1 oranında takas yap`}
+              >
+                <Anchor className="w-3 h-3" />
+                <span>
+                  Liman ({harborRatioNeed}:1)
+                  {gameView.hasUsedHarborThisTurn ? ' ✓' : ''}
+                </span>
+              </button>
+            )}
+
+            {/* Dokunsal Masaüstü Canlı Takas Çipi */}
+            <button
+              type="button"
+              disabled={!canInitiateTrade}
+              onClick={onOpenTradeModal}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition shadow ${
+                gameView.activeTrade
+                  ? 'bg-sky-400 text-stone-950 ring-2 ring-sky-300 animate-pulse cursor-pointer'
+                  : canInitiateTrade
+                  ? 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
+                  : 'bg-stone-800/80 text-stone-400 border border-stone-700/60 cursor-pointer'
+              }`}
+              title="Oyuncular Arası Canlı Takas Masası"
+            >
+              <ArrowRightLeft className="w-3 h-3" />
+              <span>Takas {gameView.hasTradedThisTurn ? ' ✓' : ''}</span>
+            </button>
+          </div>
+
+          <div className="flex items-start justify-center gap-2 sm:gap-3 overflow-x-auto pb-1 max-w-full">
             {/* Cascading Yollar */}
             {myPlayer.roadsCount > 0 && (
               <div className="flex flex-col items-center shrink-0">
-                <span className="text-xs font-bold text-amber-300 mb-1.5">
-                  Yollar ({myPlayer.roadsCount}) • Liman {harborRatioNeed}:1
-                </span>
                 <CascadingStructureStack
                   type="road"
                   count={myPlayer.roadsCount}
@@ -325,9 +309,6 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
             {/* Cascading Şövalyeler */}
             {myPlayer.knightsCount > 0 && (
               <div className="flex flex-col items-center shrink-0">
-                <span className="text-xs font-bold text-rose-300 mb-1.5">
-                  Şövalyeler ({myPlayer.knightsCount}) • Hırsız Limiti: {7 + myPlayer.knightsCount}
-                </span>
                 <CascadingStructureStack
                   type="knight"
                   count={myPlayer.knightsCount}
@@ -337,22 +318,31 @@ export const PlayerBoard: React.FC<PlayerBoardProps> = ({
             )}
 
             {/* Yan Yana Köy / Şehir / Büyükşehir Slotları */}
-            <div className="flex flex-col shrink-0">
-              <span className="text-xs font-bold text-amber-100 mb-1.5">
-                Köy / Şehir / Büyükşehir Slotları ({myPlayer.villageSlots.length})
-              </span>
-              <div className="flex items-end gap-2.5">
-                {myPlayer.villageSlots.map((slot, idx) => (
-                  <VillageSlotVisual
-                    key={slot.id}
-                    slot={slot}
-                    index={idx}
-                    onInspectCard={onInspectCard}
-                  />
-                ))}
-              </div>
+            <div className="flex items-end gap-1.5 sm:gap-2 shrink-0">
+              {myPlayer.villageSlots.map((slot, idx) => (
+                <VillageSlotVisual
+                  key={slot.id}
+                  slot={slot}
+                  index={idx}
+                  onInspectCard={onInspectCard}
+                />
+              ))}
             </div>
           </div>
+        </div>
+
+        {/* SAĞ: HEARTHSTONE TARZI 'TURU BİTİR' DİSKİ */}
+        <div className="shrink-0 flex items-center justify-center p-1">
+          <TurnDisc
+            isMyTurn={isMyTurn}
+            canAct={canAct}
+            remainingSeconds={remainingSeconds}
+            onEndTurn={onEndTurn}
+            activePlayerNickname={
+              gameView.players[gameView.activePlayerIndex]?.nickname
+            }
+            turnPhase={gameView.turnPhase}
+          />
         </div>
       </div>
     </section>

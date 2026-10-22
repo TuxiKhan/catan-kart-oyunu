@@ -22,7 +22,7 @@ export function isSupabaseConfigured(): boolean {
 }
 
 /**
- * Misafir (Anonim) oyuncu için RLS uyumlu Supabase istemcisi oluşturur.
+ * Oyuncu için RLS uyumlu Supabase istemcisi oluşturur.
  * `x-player-id` başlığı sayesinde `public.request_player_id()` fonksiyonu
  * `player_hands` tablosunda sadece ilgili oyuncunun kendi kartlarını görmesini sağlar.
  */

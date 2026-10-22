@@ -47,12 +47,14 @@ export {
   toClientGameView,
 };
 
-export interface GuestSession {
+export interface PlayerSession {
   playerId: string;
   nickname: string;
   roomCode?: string;
   updatedAt: string;
 }
+
+export type GuestSession = PlayerSession;
 
 export interface SyncActionResult {
   ok: boolean;
@@ -61,12 +63,15 @@ export interface SyncActionResult {
   bonusCardDrawn?: ResourceType | null;
 }
 
-const GUEST_STORAGE_KEY = 'catan_guest_session_v1';
+export const PLAYER_NAME_STORAGE_KEY = 'catan_player_name';
+export const PLAYER_ID_STORAGE_KEY = 'catan_player_id';
+const PLAYER_SESSION_STORAGE_KEY = 'catan_player_session_v1';
+const LEGACY_GUEST_STORAGE_KEY = 'catan_guest_session_v1';
 const ROOM_STORAGE_PREFIX = 'catan_room_state_v1_';
 
 // In-memory store for Node/Vitest environments and instant same-tab sync
 const memoryRoomStore = new Map<string, AuthoritativeGameState>();
-let memoryGuestSession: GuestSession | null = null;
+let memoryPlayerSession: PlayerSession | null = null;
 
 function generateId(prefix = 'id'): string {
   const rand = Math.random().toString(36).substring(2, 10);
@@ -74,7 +79,7 @@ function generateId(prefix = 'id'): string {
   return `${prefix}_${time}_${rand}`;
 }
 
-function generateUuid(): string {
+export function generateUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
@@ -83,6 +88,54 @@ function generateUuid(): string {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+export function getOrCreatePlayerId(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = window.localStorage.getItem(PLAYER_ID_STORAGE_KEY);
+      if (stored && stored.trim().length > 0) {
+        return stored.trim();
+      }
+      const newId = generateUuid();
+      window.localStorage.setItem(PLAYER_ID_STORAGE_KEY, newId);
+      return newId;
+    } catch {
+      // Fallback
+    }
+  }
+  return generateUuid();
+}
+
+export function getSavedPlayerName(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = window.localStorage.getItem(PLAYER_NAME_STORAGE_KEY);
+      if (stored && stored.trim().length > 0) {
+        return stored.trim();
+      }
+      const legacyRaw = window.localStorage.getItem(LEGACY_GUEST_STORAGE_KEY);
+      if (legacyRaw) {
+        const parsed = JSON.parse(legacyRaw);
+        if (parsed?.nickname && parsed.nickname !== 'Misafir Oyuncu') {
+          return parsed.nickname;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+  }
+  return '';
+}
+
+export function savePlayerName(name: string): void {
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(PLAYER_NAME_STORAGE_KEY, name.trim());
+    } catch {
+      // Ignore
+    }
+  }
 }
 
 export function generateRoomCode(): string {
@@ -124,36 +177,68 @@ export function createInitialPlayerState(
 }
 
 /**
- * Misafir Girişi (Takma Ad ile Anında Giriş) Oturum Yönetimi
+ * Oyuncu Oturumu ve Kalıcı Kimlik (UUID) Yönetimi
  */
-export function getSavedGuestSession(): GuestSession | null {
+export function getSavedPlayerSession(): PlayerSession | null {
   if (typeof window !== 'undefined') {
     try {
+      let playerId = window.localStorage.getItem(PLAYER_ID_STORAGE_KEY);
+      let nickname = window.localStorage.getItem(PLAYER_NAME_STORAGE_KEY);
+      let roomCode: string | undefined;
+
       const raw =
-        window.sessionStorage.getItem(GUEST_STORAGE_KEY) ||
-        window.localStorage.getItem(GUEST_STORAGE_KEY);
+        window.sessionStorage.getItem(PLAYER_SESSION_STORAGE_KEY) ||
+        window.localStorage.getItem(PLAYER_SESSION_STORAGE_KEY) ||
+        window.sessionStorage.getItem(LEGACY_GUEST_STORAGE_KEY) ||
+        window.localStorage.getItem(LEGACY_GUEST_STORAGE_KEY);
+
       if (raw) {
-        return JSON.parse(raw) as GuestSession;
+        const parsed = JSON.parse(raw) as Partial<PlayerSession>;
+        if (!playerId && parsed.playerId) playerId = parsed.playerId;
+        if (!nickname && parsed.nickname && parsed.nickname !== 'Misafir Oyuncu') {
+          nickname = parsed.nickname;
+        }
+        if (parsed.roomCode) roomCode = parsed.roomCode;
       }
+
+      if (!playerId || playerId.trim().length === 0) {
+        playerId = generateUuid();
+        window.localStorage.setItem(PLAYER_ID_STORAGE_KEY, playerId);
+      }
+
+      const session: PlayerSession = {
+        playerId,
+        nickname: nickname ? nickname.trim() : '',
+        roomCode,
+        updatedAt: new Date().toISOString(),
+      };
+      memoryPlayerSession = session;
+      return session;
     } catch {
       // Fallback to memory
     }
   }
-  return memoryGuestSession;
+  return memoryPlayerSession;
 }
 
-export function saveGuestSession(session: GuestSession): GuestSession {
-  const normalized: GuestSession = {
+export function savePlayerSession(session: PlayerSession): PlayerSession {
+  const normalized: PlayerSession = {
     ...session,
     nickname: session.nickname.trim(),
     updatedAt: new Date().toISOString(),
   };
-  memoryGuestSession = normalized;
+  memoryPlayerSession = normalized;
   if (typeof window !== 'undefined') {
     try {
       const serialized = JSON.stringify(normalized);
-      window.sessionStorage.setItem(GUEST_STORAGE_KEY, serialized);
-      window.localStorage.setItem(GUEST_STORAGE_KEY, serialized);
+      window.sessionStorage.setItem(PLAYER_SESSION_STORAGE_KEY, serialized);
+      window.localStorage.setItem(PLAYER_SESSION_STORAGE_KEY, serialized);
+      if (normalized.playerId) {
+        window.localStorage.setItem(PLAYER_ID_STORAGE_KEY, normalized.playerId);
+      }
+      if (normalized.nickname) {
+        window.localStorage.setItem(PLAYER_NAME_STORAGE_KEY, normalized.nickname);
+      }
     } catch {
       // Ignore storage quota errors
     }
@@ -161,28 +246,44 @@ export function saveGuestSession(session: GuestSession): GuestSession {
   return normalized;
 }
 
-export function createOrUpdateGuestSession(nickname: string, existingPlayerId?: string): GuestSession {
-  const saved = getSavedGuestSession();
-  const playerId = existingPlayerId || saved?.playerId || generateId('guest');
-  return saveGuestSession({
+export function createOrUpdatePlayerSession(
+  nickname: string,
+  existingPlayerId?: string
+): PlayerSession {
+  const saved = getSavedPlayerSession();
+  const playerId =
+    existingPlayerId ||
+    saved?.playerId ||
+    (typeof window !== 'undefined' ? window.localStorage.getItem(PLAYER_ID_STORAGE_KEY) : null) ||
+    generateUuid();
+
+  return savePlayerSession({
     playerId,
-    nickname: nickname.trim() || 'Misafir Oyuncu',
+    nickname: nickname.trim() || 'Oyuncu',
     roomCode: saved?.roomCode,
     updatedAt: new Date().toISOString(),
   });
 }
 
-export function clearGuestSession(): void {
-  memoryGuestSession = null;
+export function clearPlayerSession(): void {
+  memoryPlayerSession = null;
   if (typeof window !== 'undefined') {
     try {
-      window.sessionStorage.removeItem(GUEST_STORAGE_KEY);
-      window.localStorage.removeItem(GUEST_STORAGE_KEY);
+      window.sessionStorage.removeItem(PLAYER_SESSION_STORAGE_KEY);
+      window.localStorage.removeItem(PLAYER_SESSION_STORAGE_KEY);
+      window.sessionStorage.removeItem(LEGACY_GUEST_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_GUEST_STORAGE_KEY);
     } catch {
       // Ignore
     }
   }
 }
+
+// Backward compatibility exports
+export const getSavedGuestSession = getSavedPlayerSession;
+export const saveGuestSession = savePlayerSession;
+export const createOrUpdateGuestSession = createOrUpdatePlayerSession;
+export const clearGuestSession = clearPlayerSession;
 
 /**
  * Yerel / Hafıza Oda Durumu Saklama (BroadcastChannel & Reconnection için)
@@ -307,18 +408,18 @@ export function createAuthoritativeRoom(
  */
 export function joinAuthoritativeRoom(
   state: AuthoritativeGameState,
-  guest: { playerId: string; nickname: string }
+  player: { playerId: string; nickname: string }
 ): SyncActionResult {
   const nextState = structuredClone(state);
   const now = new Date().toISOString();
 
   // Eğer oyuncu zaten odadaysa reconnection olarak işle
-  const existingPlayer = nextState.players.find((p) => p.playerId === guest.playerId);
+  const existingPlayer = nextState.players.find((p) => p.playerId === player.playerId);
   if (existingPlayer) {
     existingPlayer.isConnected = true;
     existingPlayer.lastSeenAt = now;
-    if (guest.nickname.trim()) {
-      existingPlayer.nickname = guest.nickname.trim();
+    if (player.nickname.trim()) {
+      existingPlayer.nickname = player.nickname.trim();
     }
     nextState.logs.push({
       id: generateId('log'),
@@ -352,7 +453,7 @@ export function joinAuthoritativeRoom(
   }
 
   const seatIndex = nextState.players.length;
-  const newPlayer = createInitialPlayerState(guest.playerId, guest.nickname, seatIndex);
+  const newPlayer = createInitialPlayerState(player.playerId, player.nickname, seatIndex);
   nextState.players.push(newPlayer);
   nextState.hands[newPlayer.playerId] = [];
   nextState.logs.push({

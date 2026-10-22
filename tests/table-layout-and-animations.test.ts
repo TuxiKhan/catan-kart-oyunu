@@ -6,7 +6,7 @@ import {
   calculateProductionCount,
   getHarborRequiredCount,
 } from '@/components/board/PlayerBoard';
-import { canAffordStructure } from '@/components/board/MarketArea';
+import { canAffordStructure, getMissingResourcesDescription } from '@/components/board/MarketArea';
 import {
   CUSTOM_CARD_IMAGE_MAP,
   resolveCardImageUrl,
@@ -132,5 +132,55 @@ describe('Masa-MD Table Layout, Rules & Animation Tests', () => {
     expect(HAND_FAN_SPRING_SPEC.overviewMode.baseScale3P).toBe(0.88);
     expect(HAND_FAN_SPRING_SPEC.reviewMode.scale).toBeGreaterThan(1.0);
     expect(CARD_PLACE_ANIMATION_SPEC.totalDurationMs).toBeGreaterThan(0);
+  });
+
+  it('getMissingResourcesDescription correctly identifies missing resources for player feedback', () => {
+    const hand: ResourceType[] = ['brick'];
+    const missing = getMissingResourcesDescription(hand, 'road');
+    expect(missing).toBe('1 Odun');
+
+    const missingSettlement = getMissingResourcesDescription(hand, 'settlement');
+    expect(missingSettlement).toContain('Odun');
+    expect(missingSettlement).toContain('Yün');
+    expect(missingSettlement).toContain('Buğday');
+  });
+
+  it('enforces building row rule: 5 faceup building cards and metropolis stack at the end', () => {
+    // Rulebook check:
+    // 1. 5 cards in faceup building row
+    // 2. Metropolis stack at the end of the building row
+    // 3. Metropolis A and B variants correctly resolve faceup images
+    const metroAImage = resolveCardImageUrl({
+      category: 'structure',
+      type: 'metropolis',
+      face: 'A',
+    });
+    expect(metroAImage).toBe('/cards/metropolis/metropolis_A.png');
+
+    const metroBImage = resolveCardImageUrl({
+      category: 'structure',
+      type: 'metropolis',
+      face: 'B',
+      bVariantId: 'metropolis_b_3',
+    });
+    expect(metroBImage).toBe('/cards/metropolis/metropolis_B_longest_route.png');
+  });
+
+  it('getMissingResourcesDescription correctly identifies missing resources for tactile feedback', () => {
+    // Yol 1 tuğla + 1 odun ister. Elimizde sadece 1 tuğla varsa 1 Odun eksik olmalı
+    const handWithBrick: ResourceType[] = ['brick'];
+    const missingForRoad = getMissingResourcesDescription(handWithBrick, 'road');
+    expect(missingForRoad).toContain('Odun');
+
+    // Şehir 2 buğday + 3 demir ister. Boş elde 2 Buğday ve 3 Demir eksik olmalı
+    const emptyHand: ResourceType[] = [];
+    const missingForCity = getMissingResourcesDescription(emptyHand, 'city');
+    expect(missingForCity).toContain('Buğday');
+    expect(missingForCity).toContain('Demir');
+
+    // Büyükşehir 3 yün + 1 demir ister.
+    const missingForMetropolis = getMissingResourcesDescription(emptyHand, 'metropolis');
+    expect(missingForMetropolis).toContain('Yün');
+    expect(missingForMetropolis).toContain('Demir');
   });
 });
